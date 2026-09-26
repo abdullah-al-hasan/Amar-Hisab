@@ -1,15 +1,46 @@
-@import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap');
+@font-face {
+  font-family: 'Hind Siliguri';
+  src: url('/fonts/HindSiliguri-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Hind Siliguri';
+  src: url('/fonts/HindSiliguri-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Hind Siliguri';
+  src: url('/fonts/HindSiliguri-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Hind Siliguri';
+  src: url('/fonts/HindSiliguri-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: 'Hind Siliguri', sans-serif;
-  --default-font-family: 'Hind Siliguri', sans-serif;
+  --font-sans: 'Hind Siliguri', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --default-font-family: 'Hind Siliguri', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 :root, html, body {
-  font-family: 'Hind Siliguri', sans-serif !important;
+  font-family: 'Hind Siliguri', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
   -webkit-tap-highlight-color: transparent;
   font-feature-settings: "liga" 1, "calt" 1;
   font-variant-numeric: tabular-nums;
@@ -32,11 +63,11 @@ html.dark body {
 }
 
 *, *::before, *::after {
-  font-family: 'Hind Siliguri', sans-serif;
+  font-family: 'Hind Siliguri', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
 input, button, select, textarea {
-  font-family: 'Hind Siliguri', sans-serif !important;
+  font-family: 'Hind Siliguri', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -47,34 +78,19 @@ input, button, select, textarea {
   scrollbar-width: none;
 }
 
-@media print {
-  .no-print {
-    display: none !important;
-  }
-  body {
-    background: white !important;
-    color: black !important;
-  }
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
 }
 
-/* Privacy Blur Effect */
-html.privacy-mode .privacy-blur,
-body.privacy-mode .privacy-blur,
+.animate-pulse-subtle {
+  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Privacy Blur Feature */
 .privacy-mode .privacy-blur {
-  filter: blur(9px) !important;
-  user-select: none !important;
-  transition: filter 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  display: inline-block;
-  vertical-align: middle;
-}
-
-/* Keypad PIN Shake Animation */
-@keyframes pin-shake {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-8px); }
-  40%, 80% { transform: translateX(8px); }
-}
-
-.animate-pin-shake {
-  animation: pin-shake 0.35s ease-in-out;
+  filter: blur(8px);
+  user-select: none;
+  pointer-events: none;
+  transition: filter 0.2s ease-in-out;
 }

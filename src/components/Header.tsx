@@ -30,7 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   const todayBn = formatBanglaDate(getLocalToday());
 
   return (
-    <header className="bg-white dark:bg-[#090d16] border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-30 transition-colors shadow-2xs pt-7 sm:pt-6">
+    <header className="bg-white dark:bg-[#090d16] border-b border-slate-200/80 dark:border-slate-800 sticky top-0 z-30 transition-colors shadow-2xs pt-9 sm:pt-8">
       <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
         {/* Brand */}
         <div className="flex items-center gap-2.5">

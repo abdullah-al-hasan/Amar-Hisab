@@ -30,6 +30,7 @@ import { AboutAppModal } from './components/AboutAppModal';
 import { CheckCircle2 } from 'lucide-react';
 import { getAutoBackupConfig, saveAutoBackupConfig, shouldPerformAutoBackup } from './utils/autoBackup';
 import { saveAppDataToSupabase, loadAppDataFromSupabase } from './services/supabaseData';
+import { APP_VERSION } from './version';
 
 const TRIAL_TRANSACTION_LIMIT = 10;
 

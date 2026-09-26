@@ -1,0 +1,6 @@
+{
+  "name": "আমার হিসাব",
+  "description": "ব্যক্তিগত আয়-ব্যয়, ধার-দেনা, ব্যক্তিভিত্তিক লেজার এবং অ্যাকাউন্ট ব্যালেন্স পরিচালনার পূর্ণাঙ্গ ডিজিটাল খাতা",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

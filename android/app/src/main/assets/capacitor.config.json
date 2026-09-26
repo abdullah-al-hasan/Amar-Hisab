@@ -1,0 +1,11 @@
+{
+	"appId": "com.amarhisab.app",
+	"appName": "আমার হিসাব",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	},
+	"android": {
+		"allowMixedContent": true
+	}
+}

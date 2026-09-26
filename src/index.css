@@ -1,0 +1,80 @@
+@import url('https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Hind Siliguri', sans-serif;
+  --default-font-family: 'Hind Siliguri', sans-serif;
+}
+
+:root, html, body {
+  font-family: 'Hind Siliguri', sans-serif !important;
+  -webkit-tap-highlight-color: transparent;
+  font-feature-settings: "liga" 1, "calt" 1;
+  font-variant-numeric: tabular-nums;
+  text-rendering: optimizeLegibility;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #f8fafc;
+  color: #0f172a;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+html.dark body {
+  background-color: #090d16;
+  color: #f1f5f9;
+}
+
+*, *::before, *::after {
+  font-family: 'Hind Siliguri', sans-serif;
+}
+
+input, button, select, textarea {
+  font-family: 'Hind Siliguri', sans-serif !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white !important;
+    color: black !important;
+  }
+}
+
+/* Privacy Blur Effect */
+html.privacy-mode .privacy-blur,
+body.privacy-mode .privacy-blur,
+.privacy-mode .privacy-blur {
+  filter: blur(9px) !important;
+  user-select: none !important;
+  transition: filter 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Keypad PIN Shake Animation */
+@keyframes pin-shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+
+.animate-pin-shake {
+  animation: pin-shake 0.35s ease-in-out;
+}

@@ -521,9 +521,6 @@ export default function App() {
 
       {/* Main Container Wrapper */}
       <div className={`w-full max-w-2xl mx-auto min-h-screen bg-[#FBFBFC] dark:bg-[#0b0f19] shadow-sm flex flex-col relative border-x border-slate-200/60 dark:border-slate-800/80 transition-colors ${security.privacyBlur ? 'privacy-mode' : ''}`}>
-        {/* Dedicated Phone Status Bar Section (Reserved for real phone time, battery & network) */}
-        <div className="w-full h-7 sm:h-6 bg-slate-900 dark:bg-slate-950 shrink-0 transition-colors" />
-
         {/* Top Header */}
         <Header
           onOpenSettings={() => setIsSettingsOpen(true)}

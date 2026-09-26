@@ -13,18 +13,21 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
 
         Window window = getWindow();
+        
+        // Disable translucent flags so status bar is solid and never covers content
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         
-        // Match dedicated status bar band color (Dark slate #0F172A)
-        window.setStatusBarColor(0xFF0F172A);
+        // 1. Pure White Status Bar (like Facebook / Modern Apps)
+        window.setStatusBarColor(0xFFFFFFFF);
 
-        // White/light icons for phone's real time, network, battery
+        // 2. CRUCIAL: setAppearanceLightStatusBars(true) makes the clock, battery, wifi icons DARK/BLACK
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, window.getDecorView());
         if (controller != null) {
-            controller.setAppearanceLightStatusBars(false);
+            controller.setAppearanceLightStatusBars(true);
         }
 
+        // 3. Navigation Bar (Bottom) Pure White with dark buttons
         window.setNavigationBarColor(0xFFFFFFFF);
         if (controller != null) {
             controller.setAppearanceLightNavigationBars(true);

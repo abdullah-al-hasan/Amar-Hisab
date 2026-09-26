@@ -1,6 +1,6 @@
 {
 	"appId": "com.amarhisab.app",
-	"appName": "আমার হিসাব",
+	"appName": "Amar Hisab",
 	"webDir": "dist",
 	"server": {
 		"androidScheme": "https"

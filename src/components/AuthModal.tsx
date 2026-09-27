@@ -232,16 +232,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {/* Error Banner */}
           {error && (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex flex-col gap-1 animate-in fade-in">
-              <div className="flex items-center gap-1.5 font-bold">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{error}</span>
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex flex-col gap-1.5 animate-in fade-in">
+              <div className="flex items-start gap-2 font-medium">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <span className="leading-snug">{error}</span>
               </div>
               {error.includes('একাউন্ট তৈরি করা হয়নি') && (
                 <button
                   type="button"
                   onClick={() => switchMode('register')}
-                  className="self-start mt-1 text-[11px] font-bold text-rose-800 underline hover:no-underline cursor-pointer"
+                  className="self-start mt-0.5 text-[11px] font-bold text-rose-800 underline hover:no-underline cursor-pointer"
                 >
                   এখনই একাউন্ট তৈরি করতে এখানে ক্লিক করুন →
                 </button>

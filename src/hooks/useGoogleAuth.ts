@@ -14,6 +14,8 @@ import {
   changeAppUserPassword,
   resetUserPassword
 } from '../services/googleAuth';
+import { supabase } from '../services/supabaseClient';
+import { formatSupabaseUser } from '../services/supabaseAuth';
 import { findDriveBackup, uploadBackupToDrive, restoreFromDrive, DriveBackupMeta } from '../services/googleDrive';
 import { AppData, AppUser, DriveAccount } from '../types';
 
@@ -70,11 +72,61 @@ export function useGoogleAuth() {
     }
   }, [driveAccount?.accessToken]);
 
-  // Initial check when component mounts
+  // Initial check and Supabase session listener
   useEffect(() => {
     if (driveAccount?.accessToken) {
       refreshDriveBackupMeta(driveAccount.accessToken);
     }
+
+    // Listen to Supabase auth events (e.g. after Google OAuth redirect)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const u = formatSupabaseUser(session.user);
+        setAppUser(u);
+        saveStoredAppUser(u);
+
+        // If Google provider token is returned, connect Drive
+        const providerToken = (session as any)?.provider_token;
+        if (providerToken) {
+          const dAcc: DriveAccount = {
+            email: session.user.email || 'unknown',
+            accessToken: providerToken,
+            connectedAt: new Date().toISOString(),
+          };
+          setDriveAccount(dAcc);
+          saveStoredDriveAccount(dAcc);
+          refreshDriveBackupMeta(providerToken);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setAppUser(null);
+        saveStoredAppUser(null);
+      }
+    });
+
+    // Also check current session immediately
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const u = formatSupabaseUser(session.user);
+        setAppUser(u);
+        saveStoredAppUser(u);
+
+        const providerToken = (session as any)?.provider_token;
+        if (providerToken && !driveAccount) {
+          const dAcc: DriveAccount = {
+            email: session.user.email || 'unknown',
+            accessToken: providerToken,
+            connectedAt: new Date().toISOString(),
+          };
+          setDriveAccount(dAcc);
+          saveStoredDriveAccount(dAcc);
+          refreshDriveBackupMeta(providerToken);
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   // 3. App Login Handlers

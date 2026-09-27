@@ -115,6 +115,14 @@ export async function loginWithSupabaseGoogle(): Promise<void> {
   });
 
   if (error) {
+    const errMsg = error.message || '';
+    if (
+      errMsg.toLowerCase().includes('unsupported provider') ||
+      errMsg.toLowerCase().includes('provider is not enabled') ||
+      errMsg.toLowerCase().includes('validation_failed')
+    ) {
+      throw new Error('গুগল লগইন বর্তমানে উপলব্ধ নেই। দয়া করে ইমেইল ও পাসওয়ার্ড ব্যবহার করে লগইন অথবা একাউন্ট করুন।');
+    }
     throw new Error(error.message || 'গুগল সাইন-ইন শুরু করতে সমস্যা হয়েছে');
   }
 }

@@ -1,26 +1,11 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile,
-  getAdditionalUserInfo,
-  User 
-} from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
+import { supabase } from './supabaseClient';
 import { AppUser, DriveAccount } from '../types';
 import { 
   registerWithSupabase, 
   loginWithSupabase, 
-  logoutFromSupabase 
+  logoutFromSupabase,
+  formatSupabaseUser
 } from './supabaseAuth';
-import { supabase } from './supabaseClient';
-
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-export const auth = getAuth(app);
 
 const APP_USER_KEY = 'hishab_app_user';
 const DRIVE_ACCOUNT_KEY = 'hishab_drive_account';
@@ -52,34 +37,33 @@ const saveStoredLocalAccounts = (accounts: StoredLocalAccount[]) => {
   }
 };
 
-// Track registered user emails so logins without accounts are rejected
+// Track registered user emails
 export const getRegisteredUsers = (): string[] => {
   try {
     const raw = localStorage.getItem(REGISTERED_USERS_KEY);
     const list: string[] = raw ? JSON.parse(raw) : [];
-    
-    // Seed with existing local accounts or currently stored user
-    const local = getStoredLocalAccounts();
-    local.forEach(a => {
-      const e = a.email.toLowerCase().trim();
-      if (e && !list.includes(e)) list.push(e);
+    const localAccounts = getStoredLocalAccounts();
+    const all = new Set<string>(list.map(e => e.toLowerCase().trim()));
+    localAccounts.forEach(a => {
+      if (a.email) all.add(a.email.toLowerCase().trim());
     });
-    return list;
+    return Array.from(all);
   } catch {
     return [];
   }
 };
 
 export const registerUserEmail = (email: string) => {
-  try {
-    const list = getRegisteredUsers();
-    const normalized = email.toLowerCase().trim();
-    if (normalized && !list.includes(normalized)) {
-      list.push(normalized);
-      localStorage.setItem(REGISTERED_USERS_KEY, JSON.stringify(list));
+  if (!email) return;
+  const normalized = email.toLowerCase().trim();
+  const current = getRegisteredUsers();
+  if (!current.includes(normalized)) {
+    current.push(normalized);
+    try {
+      localStorage.setItem(REGISTERED_USERS_KEY, JSON.stringify(current));
+    } catch {
+      // Ignore
     }
-  } catch {
-    // Ignore
   }
 };
 
@@ -91,22 +75,7 @@ export const isUserEmailRegistered = (email: string): boolean => {
   return localAccounts.some(a => a.email.toLowerCase().trim() === normalized);
 };
 
-// 1. Providers
-// App Login: Only basic identity (profile & email)
-const appLoginProvider = new GoogleAuthProvider();
-appLoginProvider.setCustomParameters({
-  prompt: 'select_account',
-});
-
-// Google Drive Backup: Specific drive scopes
-const driveBackupProvider = new GoogleAuthProvider();
-driveBackupProvider.addScope('https://www.googleapis.com/auth/drive.file');
-driveBackupProvider.addScope('https://www.googleapis.com/auth/drive.appdata');
-driveBackupProvider.setCustomParameters({
-  prompt: 'select_account consent',
-});
-
-// 2. Storage Helpers
+// Storage Helpers
 export const getStoredAppUser = (): AppUser | null => {
   try {
     const raw = localStorage.getItem(APP_USER_KEY);
@@ -142,60 +111,48 @@ export const saveStoredDriveAccount = (acc: DriveAccount | null) => {
   }
 };
 
-// 3. App Login Functions
+/**
+ * 1. App Login with Google via Supabase OAuth
+ */
 export const loginAppWithGoogle = async (isRegistering: boolean = false): Promise<AppUser | null> => {
   try {
-    const result = await signInWithPopup(auth, appLoginProvider);
-    const u = result.user;
-    const additionalInfo = getAdditionalUserInfo(result);
-    const isNew = additionalInfo?.isNewUser ?? false;
-    const email = (u.email || '').toLowerCase().trim();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
 
-    // REQUIREMENT 1: একাউন্ট ছাড়া কোনোভাবেই লগইন করা যাবে না।
-    if (!isRegistering) {
-      const alreadyRegistered = isUserEmailRegistered(email);
-      // If the Google user is brand new or not registered in our app:
-      if (isNew || !alreadyRegistered) {
-        await signOut(auth);
-        saveStoredAppUser(null);
-        throw new Error('এই গুগল অ্যাকাউন্ট দিয়ে এখনও একাউন্ট তৈরি করা হয়নি। দয়া করে প্রথমে "একাউন্ট করুন" বাটনে ক্লিক করে একাউন্ট তৈরি করুন।');
+    if (error) {
+      const errMsg = error.message || '';
+      if (
+        errMsg.toLowerCase().includes('unsupported provider') ||
+        errMsg.toLowerCase().includes('provider is not enabled') ||
+        errMsg.toLowerCase().includes('validation_failed')
+      ) {
+        throw new Error('গুগল লগইন বর্তমানে উপলব্ধ নেই। দয়া করে ইমেইল ও পাসওয়ার্ড ব্যবহার করে লগইন অথবা একাউন্ট করুন।');
       }
+      throw new Error(error.message || 'গুগল সাইন-ইন শুরু করতে সমস্যা হয়েছে');
     }
 
-    // Register user email into registered list
-    if (email) {
-      registerUserEmail(email);
-    }
-
-    const appUser: AppUser = {
-      uid: u.uid,
-      email: u.email,
-      displayName: u.displayName || 'ইউজার',
-      photoURL: u.photoURL,
-    };
-    saveStoredAppUser(appUser);
-    return appUser;
+    return null;
   } catch (error: any) {
+    console.error('Supabase Google OAuth error:', error);
+    const msg = error?.message || '';
     if (
-      error?.code === 'auth/popup-closed-by-user' ||
-      error?.code === 'auth/cancelled-popup-request' ||
-      error?.message?.includes('popup-closed-by-user') ||
-      error?.message?.includes('cancelled-popup-request')
+      msg.toLowerCase().includes('unsupported provider') ||
+      msg.toLowerCase().includes('provider is not enabled') ||
+      msg.toLowerCase().includes('validation_failed')
     ) {
-      return null;
-    }
-    console.error('App Login error:', error);
-    if (
-      error?.code === 'auth/popup-blocked' ||
-      error?.message?.includes('disallowed_useragent') ||
-      error?.message?.includes('popup')
-    ) {
-      throw new Error('মোবাইল অ্যাপে সরাসরি গুগল পপআপ ব্লক রয়েছে। অনুগ্রহ করে নিচে আপনার ইমেইল ও পাসওয়ার্ড দিয়ে একাউন্ট করুন অথবা লগইন করুন।');
+      throw new Error('গুগল লগইন বর্তমানে উপলব্ধ নেই। দয়া করে ইমেইল ও পাসওয়ার্ড ব্যবহার করে লগইন অথবা একাউন্ট করুন।');
     }
     throw error;
   }
 };
 
+/**
+ * 2. Register App with Email & Password via Supabase
+ */
 export const registerAppWithEmailPassword = async (
   name: string,
   email: string,
@@ -204,12 +161,10 @@ export const registerAppWithEmailPassword = async (
   const normalizedEmail = email.trim().toLowerCase();
   const trimmedName = name.trim();
 
-  // 1. Try Supabase Auth first
   try {
     const supabaseUser = await registerWithSupabase(trimmedName, normalizedEmail, pass);
     registerUserEmail(normalizedEmail);
 
-    // Also cache to local accounts for offline resilience
     const accounts = getStoredLocalAccounts();
     const existingIdx = accounts.findIndex(a => a.email.toLowerCase() === normalizedEmail);
     const newAcc: StoredLocalAccount = {
@@ -229,7 +184,6 @@ export const registerAppWithEmailPassword = async (
   } catch (supabaseError: any) {
     console.warn('Supabase register attempt error:', supabaseError);
 
-    // If user already exists in Supabase or network issues:
     if (
       supabaseError?.message?.includes('ইতিপূর্বে অ্যাকাউন্ট খোলা হয়েছে') ||
       supabaseError?.message?.includes('already registered')
@@ -237,95 +191,72 @@ export const registerAppWithEmailPassword = async (
       throw supabaseError;
     }
 
-    // 2. Try Firebase Auth as fallback
-    try {
-      const result = await createUserWithEmailAndPassword(auth, normalizedEmail, pass);
-      if (trimmedName) {
-        await updateProfile(result.user, { displayName: trimmedName });
-      }
-      const appUser: AppUser = {
-        uid: result.user.uid,
-        email: result.user.email,
-        displayName: trimmedName || result.user.displayName || 'ইউজার',
-        photoURL: result.user.photoURL,
-      };
-      saveStoredAppUser(appUser);
-      registerUserEmail(normalizedEmail);
-
-      const accounts = getStoredLocalAccounts();
-      const existingIdx = accounts.findIndex(a => a.email.toLowerCase() === normalizedEmail);
-      const newAcc: StoredLocalAccount = {
-        uid: result.user.uid,
-        name: trimmedName,
-        email: normalizedEmail,
-        password: pass,
-      };
-      if (existingIdx >= 0) {
-        accounts[existingIdx] = newAcc;
-      } else {
-        accounts.push(newAcc);
-      }
-      saveStoredLocalAccounts(accounts);
-
-      return appUser;
-    } catch (fbError: any) {
-      // 3. Fallback to local offline accounts if both network/providers fail
-      const accounts = getStoredLocalAccounts();
-      const existing = accounts.find(a => a.email.toLowerCase() === normalizedEmail);
-      if (existing) {
-        throw new Error('এই ইমেইল দিয়ে ইতিপূর্বে অ্যাকাউন্ট খোলা হয়েছে। দয়া করে লগইন করুন।');
-      }
-
-      if (fbError?.code === 'auth/email-already-in-use') {
-        throw new Error('এই ইমেইল দিয়ে ইতিমধ্যে অ্যাকাউন্ট খোলা হয়েছে। দয়া করে লগইন করুন।');
-      }
-      if (fbError?.code === 'auth/weak-password') {
-        throw new Error('পাসওয়ার্ডটি দুর্বল। কমপক্ষে ৬টি অক্ষর বা সংখ্যা দিন।');
-      }
-
-      const localUid = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
-      const newAcc: StoredLocalAccount = {
-        uid: localUid,
-        name: trimmedName,
-        email: normalizedEmail,
-        password: pass,
-      };
-      accounts.push(newAcc);
-      saveStoredLocalAccounts(accounts);
-      registerUserEmail(normalizedEmail);
-
-      const appUser: AppUser = {
-        uid: localUid,
-        email: normalizedEmail,
-        displayName: trimmedName || 'ইউজার',
-        photoURL: null,
-      };
-      saveStoredAppUser(appUser);
-      return appUser;
+    // Local account fallback
+    const accounts = getStoredLocalAccounts();
+    const existing = accounts.find(a => a.email.toLowerCase() === normalizedEmail);
+    if (existing) {
+      throw new Error('এই ইমেইল দিয়ে ইতিপূর্বে অ্যাকাউন্ট খোলা হয়েছে। দয়া করে লগইন করুন।');
     }
+
+    const localUid = 'usr_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+    const newAcc: StoredLocalAccount = {
+      uid: localUid,
+      name: trimmedName,
+      email: normalizedEmail,
+      password: pass,
+    };
+    accounts.push(newAcc);
+    saveStoredLocalAccounts(accounts);
+    registerUserEmail(normalizedEmail);
+
+    const appUser: AppUser = {
+      uid: localUid,
+      email: normalizedEmail,
+      displayName: trimmedName || 'ইউজার',
+      photoURL: null,
+    };
+    saveStoredAppUser(appUser);
+    return appUser;
   }
 };
 
+/**
+ * 3. Login App with Email & Password via Supabase
+ */
 export const loginAppWithEmailPassword = async (
   email: string,
   pass: string
 ): Promise<AppUser> => {
   const normalizedEmail = email.trim().toLowerCase();
-  const isRegistered = isUserEmailRegistered(normalizedEmail);
 
-  // 1. Try Supabase Auth first
   try {
     const supabaseUser = await loginWithSupabase(normalizedEmail, pass);
     registerUserEmail(normalizedEmail);
+
+    const accounts = getStoredLocalAccounts();
+    const existingIdx = accounts.findIndex(a => a.email.toLowerCase() === normalizedEmail);
+    const newAcc: StoredLocalAccount = {
+      uid: supabaseUser.uid,
+      name: supabaseUser.displayName || 'ইউজার',
+      email: normalizedEmail,
+      password: pass,
+    };
+    if (existingIdx >= 0) {
+      accounts[existingIdx] = newAcc;
+    } else {
+      accounts.push(newAcc);
+    }
+    saveStoredLocalAccounts(accounts);
+
     return supabaseUser;
   } catch (supabaseError: any) {
-    console.warn('Supabase login error, checking alternatives:', supabaseError);
+    console.warn('Supabase login attempt error:', supabaseError);
 
-    if (supabaseError?.message?.includes('ভুল ইমেইল অথবা পাসওয়ার্ড')) {
-      // Check local accounts first before throwing
-      const accounts = getStoredLocalAccounts();
-      const localAcc = accounts.find(a => a.email.toLowerCase() === normalizedEmail);
-      if (localAcc && localAcc.password === pass) {
+    // Check local accounts fallback
+    const accounts = getStoredLocalAccounts();
+    const localAcc = accounts.find(a => a.email.toLowerCase() === normalizedEmail);
+    if (localAcc) {
+      if (localAcc.password === pass) {
         const appUser: AppUser = {
           uid: localAcc.uid,
           email: localAcc.email,
@@ -335,102 +266,80 @@ export const loginAppWithEmailPassword = async (
         saveStoredAppUser(appUser);
         registerUserEmail(normalizedEmail);
         return appUser;
+      } else {
+        throw new Error('ভুল পাসওয়ার্ড। আবার চেষ্টা করুন।');
       }
-      throw supabaseError;
     }
 
-    // 2. Try Firebase Auth
-    try {
-      const result = await signInWithEmailAndPassword(auth, normalizedEmail, pass);
-      const u = result.user;
-      registerUserEmail(normalizedEmail);
-      const appUser: AppUser = {
-        uid: u.uid,
-        email: u.email,
-        displayName: u.displayName || 'ইউজার',
-        photoURL: u.photoURL,
-      };
-      saveStoredAppUser(appUser);
-      return appUser;
-    } catch (fbError: any) {
-      // 3. Fallback to local accounts
-      const accounts = getStoredLocalAccounts();
-      const localAcc = accounts.find(a => a.email.toLowerCase() === normalizedEmail);
-      if (localAcc) {
-        if (localAcc.password === pass) {
-          const appUser: AppUser = {
-            uid: localAcc.uid,
-            email: localAcc.email,
-            displayName: localAcc.name || 'ইউজার',
-            photoURL: localAcc.photoURL || null,
-          };
-          saveStoredAppUser(appUser);
-          registerUserEmail(normalizedEmail);
-          return appUser;
-        } else {
-          throw new Error('ভুল পাসওয়ার্ড। আবার চেষ্টা করুন।');
-        }
-      }
-
-      if (!isRegistered) {
-        throw new Error('এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি। দয়া করে প্রথমে "একাউন্ট করুন" অপশন থেকে একাউন্ট তৈরি করুন।');
-      }
-
-      throw new Error(supabaseError?.message || 'লগইন করতে সমস্যা হয়েছে।');
+    if (!isUserEmailRegistered(normalizedEmail)) {
+      throw new Error('এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি। দয়া করে প্রথমে "একাউন্ট করুন" অপশন থেকে একাউন্ট তৈরি করুন।');
     }
+
+    throw new Error(supabaseError?.message || 'লগইন করতে সমস্যা হয়েছে।');
   }
 };
 
+/**
+ * 4. Logout App via Supabase
+ */
 export const logoutApp = async () => {
   try {
     await logoutFromSupabase();
   } catch {
     // Ignore
   }
-  try {
-    await signOut(auth);
-  } catch {
-    // Ignore
-  }
   saveStoredAppUser(null);
 };
 
-// 4. Google Drive Connect Functions
+/**
+ * 5. Google Drive Connect Functions
+ */
 export const connectGoogleDrive = async (): Promise<DriveAccount | null> => {
   try {
-    const result = await signInWithPopup(auth, driveBackupProvider);
-    const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error('Google ড্রাইভ অ্যাক্সেস টোকেন পাওয়া যায়নি');
+    // 1. First check if the user is signed in with Google and Supabase already has a provider_token
+    const { data: { session } } = await supabase.auth.getSession();
+    const providerToken = (session as any)?.provider_token;
+    
+    if (providerToken) {
+      const email = session?.user?.email || 'unknown';
+      const driveAcc: DriveAccount = {
+        email,
+        accessToken: providerToken,
+        connectedAt: new Date().toISOString(),
+      };
+      saveStoredDriveAccount(driveAcc);
+      return driveAcc;
     }
 
-    const driveAccount: DriveAccount = {
-      email: result.user.email || 'unknown',
-      displayName: result.user.displayName,
-      photoURL: result.user.photoURL,
-      accessToken: credential.accessToken,
-      connectedAt: new Date().toISOString(),
-    };
-    saveStoredDriveAccount(driveAccount);
-    return driveAccount;
-  } catch (error: any) {
-    if (
-      error?.code === 'auth/popup-closed-by-user' ||
-      error?.code === 'auth/cancelled-popup-request' ||
-      error?.message?.includes('popup-closed-by-user') ||
-      error?.message?.includes('cancelled-popup-request')
-    ) {
-      return null;
+    // 2. If no provider token yet, initiate OAuth with Google Drive scope
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+        scopes: 'https://www.googleapis.com/auth/drive.appdata',
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
+      },
+    });
+
+    if (error) {
+      const errMsg = error.message || '';
+      if (
+        errMsg.toLowerCase().includes('unsupported provider') ||
+        errMsg.toLowerCase().includes('provider is not enabled') ||
+        errMsg.toLowerCase().includes('validation_failed')
+      ) {
+        throw new Error('গুগল ড্রাইভ সংযোগ বর্তমানে সমর্থিত নয়। দয়া করে নিচের অফলাইন ব্যাকআপ ডাউনলোড অপশন ব্যবহার করুন।');
+      }
+      throw new Error(error.message || 'গুগল ড্রাইভ সাইন-ইন শুরু করতে সমস্যা হয়েছে');
     }
-    console.error('Drive connect error:', error);
-    if (
-      error?.code === 'auth/popup-blocked' ||
-      error?.message?.includes('disallowed_useragent') ||
-      error?.message?.includes('popup')
-    ) {
-      throw new Error('মোবাইল ডিভাইসে গুগল সিকিউরিটির কারণে সরাসরি পপআপ বন্ধ রয়েছে। আপনি "ব্যাকআপ ডাউনলোড" অপশন দিয়ে অফলাইন ব্যাকআপ নিরাপদ রাখতে পারেন।');
-    }
-    throw error;
+
+    return null;
+  } catch (err: any) {
+    console.error('connectGoogleDrive error:', err);
+    throw err;
   }
 };
 
@@ -443,7 +352,9 @@ export const getDriveAccessToken = (): string | null => {
   return acc ? acc.accessToken : null;
 };
 
-// 5. Password Management Functions
+/**
+ * 6. Password Management Functions via Supabase
+ */
 export const verifyUserPassword = async (email: string, pass: string): Promise<boolean> => {
   const normalizedEmail = email.trim().toLowerCase();
   
@@ -467,14 +378,6 @@ export const verifyUserPassword = async (email: string, pass: string): Promise<b
     // Ignore
   }
 
-  // Try Firebase auth verification
-  try {
-    await signInWithEmailAndPassword(auth, normalizedEmail, pass);
-    return true;
-  } catch {
-    // Ignore
-  }
-
   return false;
 };
 
@@ -485,7 +388,6 @@ export const changeAppUserPassword = async (
 ): Promise<void> => {
   const normalizedEmail = email.trim().toLowerCase();
   
-  // Verify old password
   const isValid = await verifyUserPassword(normalizedEmail, oldPass);
   if (!isValid) {
     throw new Error('বর্তমান পাসওয়ার্ড ভুল দেওয়া হয়েছে');
@@ -505,16 +407,6 @@ export const changeAppUserPassword = async (
   } catch (err) {
     console.warn('Supabase password update notice:', err);
   }
-
-  // Update in Firebase if applicable
-  try {
-    if (auth.currentUser && auth.currentUser.email?.toLowerCase() === normalizedEmail) {
-      const { updatePassword } = await import('firebase/auth');
-      await updatePassword(auth.currentUser, newPass);
-    }
-  } catch (err) {
-    console.warn('Firebase password update notice:', err);
-  }
 };
 
 export const resetUserPassword = async (
@@ -523,12 +415,10 @@ export const resetUserPassword = async (
 ): Promise<void> => {
   const normalizedEmail = email.trim().toLowerCase();
   
-  // Check if registered
   if (!isUserEmailRegistered(normalizedEmail)) {
     throw new Error('এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি');
   }
 
-  // Update in local accounts
   const accounts = getStoredLocalAccounts();
   const idx = accounts.findIndex(a => a.email.toLowerCase() === normalizedEmail);
   if (idx >= 0) {
@@ -544,11 +434,10 @@ export const resetUserPassword = async (
     saveStoredLocalAccounts(accounts);
   }
 
-  // Also send recovery email via Supabase if possible
+  // Try Supabase password reset request
   try {
     await supabase.auth.resetPasswordForEmail(normalizedEmail);
   } catch {
     // Ignore
   }
 };
-

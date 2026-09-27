@@ -9,7 +9,10 @@ import {
   getStoredAppUser, 
   getStoredDriveAccount,
   saveStoredAppUser,
-  saveStoredDriveAccount
+  saveStoredDriveAccount,
+  verifyUserPassword,
+  changeAppUserPassword,
+  resetUserPassword
 } from '../services/googleAuth';
 import { findDriveBackup, uploadBackupToDrive, restoreFromDrive, DriveBackupMeta } from '../services/googleDrive';
 import { AppData, AppUser, DriveAccount } from '../types';
@@ -243,5 +246,20 @@ export function useGoogleAuth() {
     refreshDriveBackupMeta,
     performDriveBackup,
     performDriveRestore,
+
+    // Password & Recovery Methods
+    verifyPassword: (password: string) => {
+      const email = appUser?.email;
+      if (!email) return Promise.resolve(false);
+      return verifyUserPassword(email, password);
+    },
+    changePassword: (oldPass: string, newPass: string) => {
+      const email = appUser?.email;
+      if (!email) throw new Error('লগইন করা ব্যবহারকারী পাওয়া যায়নি');
+      return changeAppUserPassword(email, oldPass, newPass);
+    },
+    resetPassword: (email: string, newPass: string) => {
+      return resetUserPassword(email, newPass);
+    },
   };
 }

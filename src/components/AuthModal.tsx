@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Lock, User, Eye, EyeOff, Loader2, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Mail, Lock, User, Eye, EyeOff, Loader2, ArrowRight, CheckCircle2, AlertCircle, KeyRound } from 'lucide-react';
 import { AppUser } from '../types';
 
 interface AuthModalProps {
@@ -9,6 +9,7 @@ interface AuthModalProps {
   onGoogleAuth: (isRegistering?: boolean) => Promise<AppUser | null>;
   onEmailLogin: (email: string, pass: string) => Promise<AppUser | null>;
   onEmailRegister: (name: string, email: string, pass: string) => Promise<AppUser | null>;
+  onForgotPassword?: (email: string, newPass: string) => Promise<void>;
   isLoadingAuth?: boolean;
 }
 
@@ -19,6 +20,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onGoogleAuth,
   onEmailLogin,
   onEmailRegister,
+  onForgotPassword,
   isLoadingAuth = false,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>(initialMode);
@@ -29,6 +31,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Forgot password modal
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetNewPass, setResetNewPass] = useState('');
+  const [confirmResetPass, setConfirmResetPass] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetSuccess, setResetSuccess] = useState('');
 
   // Sync mode if initialMode changes when opened
   React.useEffect(() => {
@@ -107,6 +118,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError('');
+    setResetSuccess('');
+
+    const targetEmail = (forgotEmail || email).trim();
+    if (!targetEmail) {
+      setResetError('অ্যাকাউন্টের ইমেইল ঠিকানা লিখুন');
+      return;
+    }
+    if (resetNewPass.length < 6) {
+      setResetError('নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে');
+      return;
+    }
+    if (resetNewPass !== confirmResetPass) {
+      setResetError('পাসওয়ার্ড দুটি মেলেনি');
+      return;
+    }
+
+    if (onForgotPassword) {
+      setIsResetting(true);
+      try {
+        await onForgotPassword(targetEmail, resetNewPass);
+        setResetSuccess('পাসওয়ার্ড সফলভাবে রিসেট করা হয়েছে!');
+        setTimeout(() => {
+          setShowForgotModal(false);
+          setResetSuccess('');
+          setResetNewPass('');
+          setConfirmResetPass('');
+        }, 2200);
+      } catch (err: any) {
+        setResetError(err.message || 'পাসওয়ার্ড রিসেট করতে সমস্যা হয়েছে');
+      } finally {
+        setIsResetting(false);
+      }
+    }
+  };
+
   const switchMode = (newMode: 'login' | 'register') => {
     setMode(newMode);
     setError(null);
@@ -115,16 +164,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 dark:bg-slate-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-[#111726] w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200/80 dark:border-slate-800 animate-in slide-in-from-bottom duration-200 max-h-[92vh] flex flex-col transition-colors">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200/80 animate-in slide-in-from-bottom duration-200 max-h-[92vh] flex flex-col">
         
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
           <div>
-            <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+            <h3 className="font-bold text-slate-900 text-sm">
               {mode === 'login' ? 'লগইন করুন' : 'একাউন্ট করুন'}
             </h3>
-            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+            <p className="text-[11px] text-slate-400">
               {mode === 'login' 
                 ? 'আপনার সংরক্ষিত হিসাবে প্রবেশ করতে লগইন করুন' 
                 : 'আপনার হিসাব আজীবনের জন্য সুরক্ষিত রাখতে নতুন অ্যাকাউন্ট খুলুন'}
@@ -133,7 +182,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+            className="p-1.5 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -147,11 +196,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               type="button"
               onClick={handleGoogleClick}
               disabled={isLoadingAuth || isSubmitting}
-              className="w-full py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white hover:bg-slate-50 dark:bg-slate-800/80 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs font-bold flex items-center justify-center gap-2.5 cursor-pointer transition-all shadow-2xs active:scale-[0.99] disabled:opacity-50"
+              className="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center justify-center gap-2.5 cursor-pointer transition-all shadow-2xs active:scale-[0.99] disabled:opacity-50"
             >
               {isLoadingAuth ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin text-slate-600 dark:text-slate-300" />
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
                   <span>সংযোগ হচ্ছে...</span>
                 </>
               ) : (
@@ -162,32 +211,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                   </svg>
-                  <span>{mode === 'login' ? 'গুগল দিয়ে লগইন করুন' : 'গুগল দিয়ে একাউন্ট করুন'}</span>
+                  <span>
+                    {mode === 'login' 
+                      ? 'গুগল অ্যাকাউন্ট দিয়ে সরাসরি লগইন করুন' 
+                      : 'গুগল অ্যাকাউন্ট দিয়ে সরাসরি একাউন্ট করুন'}
+                  </span>
                 </>
               )}
             </button>
           </div>
 
           {/* Divider */}
-          <div className="relative flex items-center justify-center">
-            <div className="border-t border-slate-200 dark:border-slate-800 w-full" />
-            <span className="bg-white dark:bg-[#111726] px-3 text-[10.5px] text-slate-400 font-medium whitespace-nowrap">
-              {mode === 'login' ? 'অথবা ইমেইল দিয়ে লগইন করুন' : 'অথবা ইমেইল দিয়ে একাউন্ট করুন'}
+          <div className="relative flex items-center justify-center my-2">
+            <div className="border-t border-slate-200 w-full" />
+            <span className="bg-white px-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider shrink-0">
+              অথবা ইমেইল দিয়ে
             </span>
+            <div className="border-t border-slate-200 w-full" />
           </div>
 
           {/* Error Banner */}
           {error && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 flex flex-col gap-1.5 text-rose-700 dark:text-rose-300 text-xs font-medium animate-in fade-in">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{error}</span>
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex flex-col gap-1 animate-in fade-in">
+              <div className="flex items-center gap-1.5 font-bold">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{error}</span>
               </div>
-              {mode === 'login' && error.includes('একাউন্ট') && (
+              {error.includes('একাউন্ট তৈরি করা হয়নি') && (
                 <button
                   type="button"
                   onClick={() => switchMode('register')}
-                  className="self-start mt-1 text-[11px] font-bold text-rose-800 dark:text-rose-200 underline hover:no-underline cursor-pointer"
+                  className="self-start mt-1 text-[11px] font-bold text-rose-800 underline hover:no-underline cursor-pointer"
                 >
                   এখনই একাউন্ট তৈরি করতে এখানে ক্লিক করুন →
                 </button>
@@ -199,7 +253,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <form onSubmit={handleSubmit} className="space-y-3">
             {mode === 'register' && (
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                   <User className="w-3.5 h-3.5 text-slate-400" />
                   <span>আপনার নাম *</span>
                 </label>
@@ -209,13 +263,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   value={name}
                   onChange={e => setName(e.target.value)}
                   placeholder="যেমন: আব্দুল্লাহ আল হাসান"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/60 text-slate-900 dark:text-slate-100 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white"
                 />
               </div>
             )}
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                 <Mail className="w-3.5 h-3.5 text-slate-400" />
                 <span>ইমেইল ঠিকানা *</span>
               </label>
@@ -225,15 +279,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="yourname@gmail.com"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/60 text-slate-900 dark:text-slate-100 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-slate-400" />
-                <span>পাসওয়ার্ড *</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  <span>পাসওয়ার্ড *</span>
+                </label>
+                {mode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotEmail(email);
+                      setShowForgotModal(true);
+                      setResetError('');
+                      setResetSuccess('');
+                    }}
+                    className="text-[11px] text-slate-500 hover:text-emerald-600 font-semibold cursor-pointer"
+                  >
+                    পাসওয়ার্ড ভুলে গেছেন?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'}
@@ -241,12 +311,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder="কমপক্ষে ৬ অক্ষর বা সংখ্যা"
-                  className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/60 text-slate-900 dark:text-slate-100 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+                  className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -255,7 +325,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             {mode === 'register' && (
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-slate-400" />
                   <span>পাসওয়ার্ড নিশ্চিত করুন *</span>
                 </label>
@@ -265,7 +335,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   value={confirmPassword}
                   onChange={e => setConfirmPassword(e.target.value)}
                   placeholder="পুনরায় পাসওয়ার্ড লিখুন"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/60 text-slate-900 dark:text-slate-100 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white dark:focus:bg-slate-900 transition-colors"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold outline-none focus:border-slate-500 focus:bg-white"
                 />
               </div>
             )}
@@ -273,7 +343,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting || isLoadingAuth}
-              className="w-full py-2.5 mt-2 rounded-xl bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold shadow-sm cursor-pointer flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 transition-all"
+              className="w-full py-2.5 mt-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-sm cursor-pointer flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 transition-all"
             >
               {isSubmitting ? (
                 <>
@@ -292,23 +362,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           {/* Mode Switcher Toggle Footer */}
           <div className="text-center pt-2">
             {mode === 'login' ? (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500">
                 অ্যাকাউন্ট নেই?{' '}
                 <button
                   type="button"
                   onClick={() => switchMode('register')}
-                  className="text-slate-900 dark:text-slate-100 font-bold hover:underline cursor-pointer"
+                  className="text-slate-900 font-bold hover:underline cursor-pointer"
                 >
                   একাউন্ট করুন
                 </button>
               </p>
             ) : (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-slate-500">
                 ইতিমধ্যে অ্যাকাউন্ট আছে?{' '}
                 <button
                   type="button"
                   onClick={() => switchMode('login')}
-                  className="text-slate-900 dark:text-slate-100 font-bold hover:underline cursor-pointer"
+                  className="text-slate-900 font-bold hover:underline cursor-pointer"
                 >
                   লগইন করুন
                 </button>
@@ -317,6 +387,114 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Dedicated Modal (Requirement 3: শুধু "পাসওয়ার্ড ভুলে গেছেন") */}
+      {showForgotModal && (
+        <div className="fixed inset-0 z-60 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
+                <KeyRound className="w-4 h-4 text-emerald-600" />
+                <span>পাসওয়ার্ড ভুলে গেছেন?</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForgotModal(false)}
+                className="p-1 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              আপনার নিবন্ধিত ইমেইল ঠিকানা দিয়ে নতুন পাসওয়ার্ড সেট করুন।
+            </p>
+
+            <form onSubmit={handleForgotSubmit} className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  অ্যাকাউন্টের ইমেইল
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={forgotEmail || email}
+                  onChange={e => setForgotEmail(e.target.value)}
+                  placeholder="yourname@gmail.com"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  নতুন পাসওয়ার্ড
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={resetNewPass}
+                  onChange={e => setResetNewPass(e.target.value)}
+                  placeholder="কমপক্ষে ৬ অক্ষর বা সংখ্যা"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  নতুন পাসওয়ার্ড নিশ্চিত করুন
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={confirmResetPass}
+                  onChange={e => setConfirmResetPass(e.target.value)}
+                  placeholder="পুনরায় নতুন পাসওয়ার্ড লিখুন"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              {resetError && (
+                <p className="text-[11px] font-semibold text-rose-500 flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{resetError}</span>
+                </p>
+              )}
+
+              {resetSuccess && (
+                <p className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>{resetSuccess}</span>
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isResetting}
+                  onClick={() => setShowForgotModal(false)}
+                  className="flex-1 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-100"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResetting}
+                  className="flex-1 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5"
+                >
+                  {isResetting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>রিসেট হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <span>নতুন পাসওয়ার্ড সেট করুন</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

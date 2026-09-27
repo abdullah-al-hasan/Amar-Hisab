@@ -60,28 +60,12 @@ export default function App() {
   const [isAppLockOpen, setIsAppLockOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
 
-  // Theme state
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('hishab_theme');
-      if (savedTheme === 'dark' || savedTheme === 'light') return savedTheme;
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    return 'light';
-  });
-
+  // Theme state: Strictly Pure White on all devices (No dark mode)
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    localStorage.setItem('hishab_theme', theme);
-  }, [theme]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
+    root.classList.remove('dark');
+    root.style.colorScheme = 'light';
+    localStorage.removeItem('hishab_theme');
   }, []);
 
   // Modals state
@@ -688,7 +672,7 @@ export default function App() {
         onClose={() => setIsAboutOpen(false)}
       />
 
-      {/* Edit Profile Modal (with Logout option) */}
+      {/* Edit Profile Modal (with Logout option & Password Change) */}
       <EditProfileModal
         isOpen={isEditProfileOpen}
         onClose={() => setIsEditProfileOpen(false)}
@@ -698,6 +682,8 @@ export default function App() {
         isLoggedIn={googleAuth.isAppLoggedIn}
         isDriveConnected={googleAuth.isDriveConnected}
         onLogout={handleLogoutWithAutoBackup}
+        onChangePassword={googleAuth.changePassword}
+        onForgotPassword={googleAuth.resetPassword}
       />
 
       {/* Send Feedback Modal */}
@@ -767,15 +753,18 @@ export default function App() {
           }
           return user;
         }}
+        onForgotPassword={googleAuth.resetPassword}
         isLoadingAuth={googleAuth.isLoadingAuth}
       />
 
-      {/* Pin Lock Screen Overlay (WhatsApp style app lock) - Only for logged in users */}
+      {/* Pin Lock Screen Overlay (WhatsApp style app lock) - Secure reset with account password */}
       {security.isLocked && googleAuth.isAppLoggedIn && (
         <PinLockScreen
           onUnlock={security.unlockApp}
           onResetPin={security.resetPin}
           appName="আমার হিসাব"
+          userEmail={googleAuth.appUser?.email}
+          onVerifyPasswordAndReset={googleAuth.verifyPassword}
         />
       )}
     </div>

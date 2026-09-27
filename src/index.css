@@ -45,21 +45,12 @@
   font-feature-settings: "liga" 1, "calt" 1;
   font-variant-numeric: tabular-nums;
   text-rendering: optimizeLegibility;
-}
-
-html.dark {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {
-  background-color: #f8fafc;
-  color: #0f172a;
-  transition: background-color 0.2s ease, color 0.2s ease;
-}
-
-html.dark body {
-  background-color: #090d16;
-  color: #f1f5f9;
+  background-color: #F8FAFC;
+  color: #0F172A;
 }
 
 *, *::before, *::after {

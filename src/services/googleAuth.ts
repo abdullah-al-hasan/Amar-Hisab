@@ -17,6 +17,7 @@ import {
   loginWithSupabase, 
   logoutFromSupabase 
 } from './supabaseAuth';
+import { supabase } from './supabaseClient';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const auth = getAuth(app);
@@ -184,6 +185,13 @@ export const loginAppWithGoogle = async (isRegistering: boolean = false): Promis
       return null;
     }
     console.error('App Login error:', error);
+    if (
+      error?.code === 'auth/popup-blocked' ||
+      error?.message?.includes('disallowed_useragent') ||
+      error?.message?.includes('popup')
+    ) {
+      throw new Error('মোবাইল অ্যাপে সরাসরি গুগল পপআপ ব্লক রয়েছে। অনুগ্রহ করে নিচে আপনার ইমেইল ও পাসওয়ার্ড দিয়ে একাউন্ট করুন অথবা লগইন করুন।');
+    }
     throw error;
   }
 };
@@ -415,6 +423,13 @@ export const connectGoogleDrive = async (): Promise<DriveAccount | null> => {
       return null;
     }
     console.error('Drive connect error:', error);
+    if (
+      error?.code === 'auth/popup-blocked' ||
+      error?.message?.includes('disallowed_useragent') ||
+      error?.message?.includes('popup')
+    ) {
+      throw new Error('মোবাইল ডিভাইসে গুগল সিকিউরিটির কারণে সরাসরি পপআপ বন্ধ রয়েছে। আপনি "ব্যাকআপ ডাউনলোড" অপশন দিয়ে অফলাইন ব্যাকআপ নিরাপদ রাখতে পারেন।');
+    }
     throw error;
   }
 };
@@ -427,3 +442,113 @@ export const getDriveAccessToken = (): string | null => {
   const acc = getStoredDriveAccount();
   return acc ? acc.accessToken : null;
 };
+
+// 5. Password Management Functions
+export const verifyUserPassword = async (email: string, pass: string): Promise<boolean> => {
+  const normalizedEmail = email.trim().toLowerCase();
+  
+  // Check local account first
+  const accounts = getStoredLocalAccounts();
+  const localAcc = accounts.find(a => a.email.toLowerCase() === normalizedEmail);
+  if (localAcc && localAcc.password === pass) {
+    return true;
+  }
+
+  // Try Supabase auth verification
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password: pass,
+    });
+    if (!error && data?.user) {
+      return true;
+    }
+  } catch {
+    // Ignore
+  }
+
+  // Try Firebase auth verification
+  try {
+    await signInWithEmailAndPassword(auth, normalizedEmail, pass);
+    return true;
+  } catch {
+    // Ignore
+  }
+
+  return false;
+};
+
+export const changeAppUserPassword = async (
+  email: string,
+  oldPass: string,
+  newPass: string
+): Promise<void> => {
+  const normalizedEmail = email.trim().toLowerCase();
+  
+  // Verify old password
+  const isValid = await verifyUserPassword(normalizedEmail, oldPass);
+  if (!isValid) {
+    throw new Error('বর্তমান পাসওয়ার্ড ভুল দেওয়া হয়েছে');
+  }
+
+  // Update in local accounts
+  const accounts = getStoredLocalAccounts();
+  const idx = accounts.findIndex(a => a.email.toLowerCase() === normalizedEmail);
+  if (idx >= 0) {
+    accounts[idx].password = newPass;
+    saveStoredLocalAccounts(accounts);
+  }
+
+  // Update in Supabase
+  try {
+    await supabase.auth.updateUser({ password: newPass });
+  } catch (err) {
+    console.warn('Supabase password update notice:', err);
+  }
+
+  // Update in Firebase if applicable
+  try {
+    if (auth.currentUser && auth.currentUser.email?.toLowerCase() === normalizedEmail) {
+      const { updatePassword } = await import('firebase/auth');
+      await updatePassword(auth.currentUser, newPass);
+    }
+  } catch (err) {
+    console.warn('Firebase password update notice:', err);
+  }
+};
+
+export const resetUserPassword = async (
+  email: string,
+  newPass: string
+): Promise<void> => {
+  const normalizedEmail = email.trim().toLowerCase();
+  
+  // Check if registered
+  if (!isUserEmailRegistered(normalizedEmail)) {
+    throw new Error('এই ইমেইল দিয়ে কোনো অ্যাকাউন্ট পাওয়া যায়নি');
+  }
+
+  // Update in local accounts
+  const accounts = getStoredLocalAccounts();
+  const idx = accounts.findIndex(a => a.email.toLowerCase() === normalizedEmail);
+  if (idx >= 0) {
+    accounts[idx].password = newPass;
+    saveStoredLocalAccounts(accounts);
+  } else {
+    accounts.push({
+      uid: 'usr_' + Date.now().toString(36),
+      name: 'ইউজার',
+      email: normalizedEmail,
+      password: newPass,
+    });
+    saveStoredLocalAccounts(accounts);
+  }
+
+  // Also send recovery email via Supabase if possible
+  try {
+    await supabase.auth.resetPasswordForEmail(normalizedEmail);
+  } catch {
+    // Ignore
+  }
+};
+

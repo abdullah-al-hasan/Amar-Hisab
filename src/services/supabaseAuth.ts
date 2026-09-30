@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { supabase, getAuthRedirectUrl } from './supabaseClient';
 import { AppUser } from '../types';
 
 const APP_USER_KEY = 'hishab_app_user';
@@ -110,7 +110,7 @@ export async function loginWithSupabaseGoogle(): Promise<void> {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: window.location.origin,
+      redirectTo: getAuthRedirectUrl(),
     },
   });
 

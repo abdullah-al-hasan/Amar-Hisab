@@ -18,6 +18,8 @@ import { supabase } from '../services/supabaseClient';
 import { formatSupabaseUser } from '../services/supabaseAuth';
 import { findDriveBackup, uploadBackupToDrive, restoreFromDrive, DriveBackupMeta } from '../services/googleDrive';
 import { AppData, AppUser, DriveAccount } from '../types';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 
 export function useGoogleAuth() {
   // 1. App User Authentication State (Independent of Drive)
@@ -124,8 +126,42 @@ export function useGoogleAuth() {
       }
     });
 
+    // Listen to deep links on native Android (e.g. com.amarhisab.app://google-auth#access_token=...)
+    let appUrlListener: any = null;
+    if (Capacitor.isNativePlatform()) {
+      appUrlListener = CapacitorApp.addListener('appUrlOpen', async (data) => {
+        if (data?.url && (data.url.includes('access_token') || data.url.includes('code='))) {
+          try {
+            // Let supabase handle URL hash or query params
+            const urlObj = new URL(data.url);
+            const hash = urlObj.hash ? urlObj.hash.substring(1) : '';
+            const params = new URLSearchParams(hash || urlObj.search);
+            const accessToken = params.get('access_token');
+            const refreshToken = params.get('refresh_token');
+
+            if (accessToken && refreshToken) {
+              const { data: sessionData, error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              });
+              if (!error && sessionData?.user) {
+                const u = formatSupabaseUser(sessionData.user);
+                setAppUser(u);
+                saveStoredAppUser(u);
+              }
+            }
+          } catch (e) {
+            console.warn('Failed parsing deep link auth URL:', e);
+          }
+        }
+      });
+    }
+
     return () => {
       subscription.unsubscribe();
+      if (appUrlListener && typeof appUrlListener.remove === 'function') {
+        appUrlListener.remove();
+      }
     };
   }, []);
 

@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { supabase, getAuthRedirectUrl } from './supabaseClient';
 import { AppUser, DriveAccount } from '../types';
 import { 
   registerWithSupabase, 
@@ -119,7 +119,7 @@ export const loginAppWithGoogle = async (isRegistering: boolean = false): Promis
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: getAuthRedirectUrl(),
       },
     });
 
@@ -315,7 +315,7 @@ export const connectGoogleDrive = async (): Promise<DriveAccount | null> => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: getAuthRedirectUrl(),
         scopes: 'https://www.googleapis.com/auth/drive.appdata',
         queryParams: {
           access_type: 'offline',

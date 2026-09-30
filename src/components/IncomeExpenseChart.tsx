@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { TrendingUp, TrendingDown, Scale, Calendar, BarChart2 } from 'lucide-react';
 import { Transaction } from '../types';
 import { formatMoney } from '../utils/accounting';
+import { getLocalToday } from '../utils/storage';
 
 interface IncomeExpenseChartProps {
   transactions: Transaction[];
@@ -11,6 +12,8 @@ interface IncomeExpenseChartProps {
 type TimeFrame = 'day' | 'week' | 'month';
 
 interface ChartDataPoint {
+  dayNum?: number;
+  isToday?: boolean;
   label: string;
   subLabel?: string;
   income: number;
@@ -29,6 +32,8 @@ export const IncomeExpenseChart: React.FC<IncomeExpenseChartProps> = ({
   selectedMonth,
 }) => {
   const [timeFrame, setTimeFrame] = useState<TimeFrame>('day');
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeDayRef = useRef<HTMLDivElement>(null);
 
   // Compute dataset based on selected timeFrame
   const { dataPoints, totalIncome, totalExpense } = useMemo(() => {
@@ -43,6 +48,10 @@ export const IncomeExpenseChart: React.FC<IncomeExpenseChartProps> = ({
       const month = parseInt(monthStr, 10);
       // Number of days in selected month
       const daysInMonth = new Date(year, month, 0).getDate();
+
+      const todayStr = getLocalToday();
+      const isCurrentMonth = todayStr.startsWith(selectedMonth);
+      const currentDayNum = isCurrentMonth ? parseInt(todayStr.split('-')[2], 10) : -1;
 
       const dailyMap = new Map<number, { income: number; expense: number }>();
       for (let d = 1; d <= daysInMonth; d++) {
@@ -69,9 +78,12 @@ export const IncomeExpenseChart: React.FC<IncomeExpenseChartProps> = ({
         const diff = val.income - val.expense;
         const isHigher = val.income > val.expense ? 'income' : val.expense > val.income ? 'expense' : 'equal';
         const monthBn = BANGLA_MONTHS[month - 1] || '';
+        const isToday = day === currentDayNum;
         return {
+          dayNum: day,
+          isToday,
           label: `${formatMoney(day)}`,
-          subLabel: `${formatMoney(day)} ${monthBn}`,
+          subLabel: `${formatMoney(day)} ${monthBn}${isToday ? ' (আজ)' : ''}`,
           income: val.income,
           expense: val.expense,
           diff,
@@ -194,6 +206,33 @@ export const IncomeExpenseChart: React.FC<IncomeExpenseChartProps> = ({
     return max > 0 ? max : 1000;
   }, [dataPoints]);
 
+  // Auto-scroll to today's date if viewing daily breakdown
+  useEffect(() => {
+    if (timeFrame !== 'day') return;
+
+    // Small delay to ensure DOM and layout are settled
+    const timer = setTimeout(() => {
+      if (activeDayRef.current && scrollContainerRef.current) {
+        const container = scrollContainerRef.current;
+        const target = activeDayRef.current;
+
+        // Calculate offset to place today's bar nicely centered or in view
+        const targetLeft = target.offsetLeft;
+        const targetWidth = target.offsetWidth;
+        const containerWidth = container.clientWidth;
+
+        const scrollTo = targetLeft - (containerWidth / 2) + (targetWidth / 2);
+
+        container.scrollTo({
+          left: Math.max(0, scrollTo),
+          behavior: 'smooth',
+        });
+      }
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [timeFrame, selectedMonth, dataPoints]);
+
   return (
     <section className="bg-white dark:bg-[#111726] rounded-3xl p-4 sm:p-5 border border-slate-200/70 dark:border-slate-800/80 shadow-[0_2px_12px_rgba(0,0,0,0.02)] space-y-4 transition-colors">
       {/* 1. Header & Controls: নামের সামনেই দিন, সপ্তাহ, মাস এটা থাকবে */}
@@ -259,7 +298,10 @@ export const IncomeExpenseChart: React.FC<IncomeExpenseChartProps> = ({
         </div>
 
         {/* Scrollable Container for chart */}
-        <div className="relative pt-6 pb-2 px-2 bg-slate-50/60 dark:bg-slate-900/40 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 overflow-x-auto">
+        <div 
+          ref={scrollContainerRef}
+          className="relative pt-6 pb-2 px-2 bg-slate-50/60 dark:bg-slate-900/40 rounded-2xl border border-slate-200/60 dark:border-slate-800/80 overflow-x-auto scroll-smooth"
+        >
           {/* Chart Bars */}
           <div
             className={`flex items-end gap-2 sm:gap-3 min-h-[160px] pb-6 pt-6 ${
@@ -279,7 +321,12 @@ export const IncomeExpenseChart: React.FC<IncomeExpenseChartProps> = ({
               return (
                 <div
                   key={index}
-                  className="flex-1 flex flex-col items-center justify-end group relative"
+                  ref={point.isToday ? activeDayRef : undefined}
+                  className={`flex-1 flex flex-col items-center justify-end group relative rounded-xl px-0.5 transition-all ${
+                    point.isToday 
+                      ? 'bg-blue-50/80 dark:bg-blue-950/40 ring-1.5 ring-blue-500/50 py-1 -my-1 shadow-2xs' 
+                      : ''
+                  }`}
                 >
                   {/* Status Indicator Dot on Top */}
                   {!isZero && (
@@ -329,7 +376,11 @@ export const IncomeExpenseChart: React.FC<IncomeExpenseChartProps> = ({
                   </div>
 
                   {/* Axis Label */}
-                  <span className="text-[10px] sm:text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-2 truncate max-w-[60px] text-center">
+                  <span className={`text-[10px] sm:text-[11px] mt-2 truncate max-w-[60px] text-center ${
+                    point.isToday 
+                      ? 'font-bold text-blue-600 dark:text-blue-400' 
+                      : 'font-medium text-slate-500 dark:text-slate-400'
+                  }`}>
                     {point.label}
                   </span>
                 </div>

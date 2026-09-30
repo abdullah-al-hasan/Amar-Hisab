@@ -44,7 +44,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
           cd ..
           mkdir -p release-apk
           cp android/app/build/outputs/apk/debug/app-debug.apk release-apk/Amar-Hisab-v1.1.apk

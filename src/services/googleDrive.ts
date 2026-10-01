@@ -7,6 +7,7 @@ export interface DriveBackupMeta {
   modifiedTime?: string;
   size?: number;
   userEmail?: string;
+  transactionCount?: number;
 }
 
 const BACKUP_FILENAME = 'amar_hisab_backup.json';

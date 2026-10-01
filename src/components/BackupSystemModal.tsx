@@ -68,8 +68,11 @@ export const BackupSystemModal: React.FC<BackupSystemModalProps> = ({
     isLoadingAuth,
     isCheckingDrive,
     isBackingUp,
+    isRestoring,
     driveError,
     performDriveBackup,
+    performDriveRestore,
+    refreshDriveBackupMeta,
     appUser,
   } = googleAuth;
 
@@ -81,6 +84,13 @@ export const BackupSystemModal: React.FC<BackupSystemModalProps> = ({
 
   // Auto-backup configuration state (daily / weekly / monthly)
   const [autoBackupConfig, setAutoBackupConfig] = useState<AutoBackupConfig>(() => getAutoBackupConfig());
+
+  // Refresh Drive backup metadata when modal opens
+  useEffect(() => {
+    if (isOpen && driveAccount?.accessToken) {
+      refreshDriveBackupMeta(driveAccount.accessToken);
+    }
+  }, [isOpen, driveAccount?.accessToken, refreshDriveBackupMeta]);
 
   if (!isOpen) return null;
 
@@ -109,17 +119,38 @@ export const BackupSystemModal: React.FC<BackupSystemModalProps> = ({
     setTimeout(() => setModalStatus(null), 3500);
   };
 
-  const handleToggleAutoBackup = () => {
-    if (!requireLogin('স্বয়ংক্রিয় ব্যাকআপ চালু/বন্ধ')) return;
-    const nextEnabled = !autoBackupConfig.enabled;
-    const updated: AutoBackupConfig = { ...autoBackupConfig, enabled: nextEnabled };
-    setAutoBackupConfig(updated);
-    saveAutoBackupConfig(updated);
+  const handleEnableSync = async () => {
+    if (!requireLogin('সিঙ্ক চালু করুন')) return;
+    try {
+      const acc = await connectDrive(appData);
+      if (acc) {
+        const cfg = { ...autoBackupConfig, enabled: true };
+        setAutoBackupConfig(cfg);
+        saveAutoBackupConfig(cfg);
+        setModalStatus({
+          type: 'success',
+          text: 'গুগল ও ক্লাউড ব্যাকআপ সিঙ্ক সক্রিয় হয়েছে!',
+        });
+        setTimeout(() => setModalStatus(null), 4000);
+      }
+    } catch (err: any) {
+      setModalStatus({
+        type: 'error',
+        text: err.message || 'সিঙ্ক চালু করতে সমস্যা হয়েছে',
+      });
+    }
+  };
+
+  const handleDisableSync = async () => {
+    await disconnectDrive();
+    const cfg = { ...autoBackupConfig, enabled: false };
+    setAutoBackupConfig(cfg);
+    saveAutoBackupConfig(cfg);
     setModalStatus({
       type: 'success',
-      text: nextEnabled ? 'স্বয়ংক্রিয় ব্যাকআপ চালু করা হয়েছে।' : 'স্বয়ংক্রিয় ব্যাকআপ সাময়িক বন্ধ করা হয়েছে।',
+      text: 'সিঙ্ক সাময়িক বন্ধ করা হয়েছে।',
     });
-    setTimeout(() => setModalStatus(null), 3500);
+    setTimeout(() => setModalStatus(null), 3000);
   };
 
   // 1. Google Drive Handlers
@@ -152,6 +183,37 @@ export const BackupSystemModal: React.FC<BackupSystemModalProps> = ({
       setModalStatus({
         type: 'error',
         text: err.message || 'গুগল ড্রাইভে ব্যাকআপ নিতে সমস্যা হয়েছে।',
+      });
+    }
+  };
+
+  const handleDriveRestoreClick = async () => {
+    if (!requireLogin('গুগল ড্রাইভ থেকে রিস্টোর')) return;
+    if (!driveMeta?.exists) {
+      setModalStatus({
+        type: 'error',
+        text: 'গুগল ড্রাইভে কোনো ব্যাকআপ ফাইল পাওয়া যায়নি।',
+      });
+      return;
+    }
+    const confirmed = window.confirm('আপনি কি গুগল ড্রাইভের ব্যাকআপ থেকে সমস্ত হিসাব রিস্টোর করতে চান? আপনার বর্তমান ডাটা প্রতিস্থাপিত হবে।');
+    if (!confirmed) return;
+
+    setModalStatus(null);
+    try {
+      const restored = await performDriveRestore();
+      if (restored && restored.transactions && restored.accounts) {
+        onRestoreData(restored);
+        setModalStatus({
+          type: 'success',
+          text: `গুগল ড্রাইভ থেকে হিসাব সফলভাবে রিস্টোর হয়েছে! (${toBanglaDigits(restored.transactions.length)}টি লেনদেন)`,
+        });
+        setTimeout(() => setModalStatus(null), 5000);
+      }
+    } catch (err: any) {
+      setModalStatus({
+        type: 'error',
+        text: err.message || 'গুগল ড্রাইভ থেকে রিস্টোর করতে সমস্যা হয়েছে।',
       });
     }
   };
@@ -349,261 +411,247 @@ export const BackupSystemModal: React.FC<BackupSystemModalProps> = ({
 
             {showGoogleDrive && (
               <div className="p-3.5 sm:p-4 bg-white dark:bg-slate-900/20 space-y-3.5">
-                {!driveAccount ? (
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!requireLogin('গুগল ড্রাইভ সংযোগ')) return;
-                        connectDrive();
-                      }}
-                      disabled={isLoadingAuth}
-                      className="w-full p-3 rounded-xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/80 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-700 flex items-center justify-center gap-2.5 text-xs font-bold text-slate-800 dark:text-slate-200 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
-                    >
-                      {isLoadingAuth ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-                          <span>গুগল অ্যাকাউন্ট সংযুক্ত হচ্ছে...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" viewBox="0 0 24 24">
-                            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                          </svg>
-                          <span>গুগল ড্রাইভ ব্যাকআপ সংযুক্ত করুন</span>
-                        </>
-                      )}
-                    </button>
-                    {appUser?.email && (
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 text-center leading-relaxed">
-                        লগইন করা ইমেইল ({appUser.email}) অথবা আপনার পছন্দের যেকোনো গুগল অ্যাকাউন্ট ব্যাকআপের জন্য বেছে নিতে পারেন।
-                      </p>
-                    )}
+                {/* ১. ব্যাকআপ সিঙ্ক নিয়ন্ত্রণ */}
+                <div className="bg-slate-50/90 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-700/70 flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1 flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-200/50 dark:border-emerald-900/50">
+                      <Cloud className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                        ক্লাউড ব্যাকআপ সিঙ্ক
+                      </span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium block">
+                        {isDriveConnected ? 'স্বয়ংক্রিয় ক্লাউড ব্যাকআপ সক্রিয় রয়েছে' : 'হিসাব সুরক্ষিত রাখতে সিঙ্ক চালু করুন'}
+                      </span>
+                    </div>
                   </div>
-                ) : (
-                  <>
-                    {/* ৩.১ কোন গুগল একাউন্ট থেকে ব্যাকআপ নেওয়া হয়েছে */}
-                    <div className="bg-slate-50/80 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200/70 dark:border-slate-700/70">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium block">
-                            গুগল ড্রাইভ ব্যাকআপ একাউন্ট
-                          </span>
-                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate block">
-                            {driveAccount.email}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={disconnectDrive}
-                          className="text-[10px] text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 font-semibold px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 cursor-pointer transition-colors"
-                          title="ড্রাইভ একাউন্ট পরিবর্তন বা বিচ্ছিন্ন করুন"
-                        >
-                          পরিবর্তন
-                        </button>
-                      </div>
 
-                      {driveMeta?.userEmail && driveMeta.userEmail !== driveAccount.email && (
-                        <div className="text-[10px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1.5 rounded-lg border border-amber-200/70 dark:border-amber-900/40 leading-relaxed mt-2">
-                          ড্রাইভে বিদ্যমান পূর্বের ব্যাকআপটি <strong>{driveMeta.userEmail}</strong> একাউন্ট থেকে নেওয়া হয়েছিল।
-                        </div>
-                      )}
-                    </div>
-
-                    {/* ৩.২ শেষ কবে গুগল একাউন্টে ব্যাকআপ দেয়া হয়েছে */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 flex items-start gap-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 flex items-center justify-center shrink-0 mt-0.5">
-                          <Clock className="w-3.5 h-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 block mb-0.5 font-medium">
-                            সর্বশেষ গুগল ব্যাকআপ
-                          </span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200 leading-tight block text-xs">
-                            {isCheckingDrive ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                            ) : driveMeta?.exists && driveMeta?.modifiedTime ? (
-                              formatBanglaDateTime(driveMeta.modifiedTime)
-                            ) : (
-                              <span className="text-slate-400 dark:text-slate-500 font-normal">এখনও কোনো ব্যাকআপ দেওয়া হয়নি</span>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 flex items-start gap-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 flex items-center justify-center shrink-0 mt-0.5">
-                          <Database className="w-3.5 h-3.5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 block mb-0.5 font-medium">
-                            ব্যাকআপ সাইজ
-                          </span>
-                          <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
-                            {isCheckingDrive ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
-                            ) : driveMeta?.exists ? (
-                              `${formatBytes(driveMeta.size)} (JSON)`
-                            ) : (
-                              <span className="text-slate-400 dark:text-slate-500 font-normal">০ KB</span>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* ৩.৩ অটোমেটিক ব্যাকআপ কবে হবে (প্রতিদিন / সাপ্তাহিক / মাসিক) সিলেক্ট করার অপশন */}
-                    <div className="p-3.5 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 flex items-center justify-center shrink-0">
-                            <RefreshCw className="w-3 h-3" />
-                          </div>
-                          <div>
-                            <h5 className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                              অটোমেটিক ব্যাকআপ
-                            </h5>
-                            <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                              {autoBackupConfig.enabled
-                                ? autoBackupConfig.frequency === 'daily'
-                                  ? 'প্রতিদিন আপনার হিসাব স্বয়ংক্রিয় ব্যাকআপ নিবে'
-                                  : autoBackupConfig.frequency === 'weekly'
-                                  ? 'সাপ্তাহিক আপনার হিসাব স্বয়ংক্রিয় ব্যাকআপ নিবে'
-                                  : 'মাসিক আপনার হিসাব স্বয়ংক্রিয় ব্যাকআপ নিবে'
-                                : 'স্বয়ংক্রিয় ব্যাকআপ বন্ধ রয়েছে'}
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* On/Off Switch */}
-                        <button
-                          type="button"
-                          onClick={handleToggleAutoBackup}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            autoBackupConfig.enabled ? 'bg-slate-900 dark:bg-slate-100' : 'bg-slate-300 dark:bg-slate-700'
-                          }`}
-                          title={autoBackupConfig.enabled ? 'স্বয়ংক্রিয় ব্যাকআপ চালু রয়েছে' : 'স্বয়ংক্রিয় ব্যাকআপ বন্ধ'}
-                        >
-                          <span
-                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-lg ring-0 transition duration-200 ease-in-out ${
-                              autoBackupConfig.enabled ? 'translate-x-4 bg-white dark:bg-slate-900' : 'translate-x-0 bg-white'
-                            }`}
-                          />
-                        </button>
-                      </div>
-
-                      {/* 3 Frequency Selection Options */}
-                      <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-200/60 dark:bg-slate-900/60 rounded-xl">
-                        <button
-                          type="button"
-                          disabled={!autoBackupConfig.enabled}
-                          onClick={() => handleFrequencyChange('daily')}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                            autoBackupConfig.frequency === 'daily' && autoBackupConfig.enabled
-                              ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
-                          }`}
-                        >
-                          {autoBackupConfig.frequency === 'daily' && autoBackupConfig.enabled && (
-                            <Check className="w-3 h-3 text-slate-900 dark:text-white shrink-0" />
-                          )}
-                          <span>প্রতিদিন</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={!autoBackupConfig.enabled}
-                          onClick={() => handleFrequencyChange('weekly')}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                            autoBackupConfig.frequency === 'weekly' && autoBackupConfig.enabled
-                              ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
-                          }`}
-                        >
-                          {autoBackupConfig.frequency === 'weekly' && autoBackupConfig.enabled && (
-                            <Check className="w-3 h-3 text-slate-900 dark:text-white shrink-0" />
-                          )}
-                          <span>সাপ্তাহিক</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          disabled={!autoBackupConfig.enabled}
-                          onClick={() => handleFrequencyChange('monthly')}
-                          className={`py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                            autoBackupConfig.frequency === 'monthly' && autoBackupConfig.enabled
-                              ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
-                              : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed'
-                          }`}
-                        >
-                          {autoBackupConfig.frequency === 'monthly' && autoBackupConfig.enabled && (
-                            <Check className="w-3 h-3 text-slate-900 dark:text-white shrink-0" />
-                          )}
-                          <span>মাসিক</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Google Drive Action Button (ব্যাকআপ নিন) */}
-                    <div className="pt-1">
+                  {isDriveConnected ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-950/80 px-2.5 py-1.5 rounded-xl shrink-0 flex items-center gap-1.5 border border-emerald-200/60 dark:border-emerald-800/60">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>সিঙ্ক সক্রিয়</span>
+                      </span>
                       <button
                         type="button"
-                        onClick={handleDriveBackupClick}
-                        disabled={isBackingUp}
-                        className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-all active:scale-[0.98]"
+                        onClick={handleDisableSync}
+                        className="text-[10px] font-semibold text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-rose-300 transition-colors cursor-pointer"
+                        title="সিঙ্ক বন্ধ করুন"
                       >
-                        {isBackingUp ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span>ব্যাকআপ নেওয়া হচ্ছে...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Cloud className="w-4 h-4" />
-                            <span>ব্যাকআপ নিন</span>
-                          </>
-                        )}
+                        বন্ধ করুন
                       </button>
                     </div>
+                  ) : appUser ? (
+                    <button
+                      type="button"
+                      onClick={handleEnableSync}
+                      disabled={isLoadingAuth}
+                      className="text-[11px] font-bold text-white bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white dark:text-slate-900 px-3.5 py-2 rounded-xl cursor-pointer transition-all shadow-xs shrink-0 flex items-center gap-1.5 active:scale-[0.98]"
+                    >
+                      {isLoadingAuth ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Cloud className="w-3.5 h-3.5" />
+                      )}
+                      <span>সিঙ্ক চালু করুন</span>
+                    </button>
+                  ) : null}
+                </div>
 
-                    {/* Overwrite Confirmation Dialog */}
-                    {showOverwriteConfirm && (
-                      <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 space-y-3 animate-in fade-in">
-                        <div className="flex items-start gap-2.5">
-                          <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                          <div>
-                            <h4 className="text-xs font-bold text-amber-950 dark:text-amber-200">
-                              পূর্ববর্তী ব্যাকআপ ফাইল প্রতিস্থাপন করবেন?
-                            </h4>
-                            <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-1 leading-relaxed">
-                              আপনার গুগল ড্রাইভে ইতোমধ্যেই একটি ব্যাকআপ ফাইল রয়েছে। আপনি কি বর্তমান ডিভাইসের সর্বশেষ ডাটা দিয়ে ড্রাইভে থাকা পূর্ববর্তী ব্যাকআপটি প্রতিস্থাপন করতে চান?
-                            </p>
-                          </div>
-                        </div>
+                {/* ২. গুগলে কতটুকু তথ্য আপলোড করা আছে এবং শেষ কবে ডাটা আপলোড হয়েছে */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* সাইজ */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 mt-0.5 border border-blue-200/50 dark:border-blue-900/50">
+                      <Database className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 block mb-0.5 font-medium">
+                        আপলোড করা তথ্যের সাইজ
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-slate-100 block text-xs">
+                        {isCheckingDrive ? (
+                          <span className="inline-flex items-center gap-1.5 text-slate-400">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>যাচাই হচ্ছে...</span>
+                          </span>
+                        ) : driveMeta?.exists && driveMeta.size ? (
+                          `${formatBytes(driveMeta.size)} (JSON ডেটা)`
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500 font-normal">০ KB (এখনও আপলোড করা হয়নি)</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
 
-                        <div className="flex gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => setShowOverwriteConfirm(false)}
-                            className="flex-1 py-2 rounded-xl border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-medium hover:bg-amber-100/60 cursor-pointer"
-                          >
-                            বাতিল
-                          </button>
-                          <button
-                            type="button"
-                            onClick={executeDriveBackup}
-                            className="flex-1 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs cursor-pointer"
-                          >
-                            হ্যাঁ, ব্যাকআপ আপডেট করুন
-                          </button>
-                        </div>
-                      </div>
+                  {/* শেষ আপলোডের তারিখ */}
+                  <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 mt-0.5 border border-purple-200/50 dark:border-purple-900/50">
+                      <Clock className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 block mb-0.5 font-medium">
+                        সর্বশেষ ডাটা আপলোড
+                      </span>
+                      <span className="font-bold text-slate-900 dark:text-slate-100 leading-tight block text-xs">
+                        {isCheckingDrive ? (
+                          <span className="inline-flex items-center gap-1.5 text-slate-400">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>যাচাই হচ্ছে...</span>
+                          </span>
+                        ) : driveMeta?.exists && driveMeta?.modifiedTime ? (
+                          formatBanglaDateTime(driveMeta.modifiedTime)
+                        ) : (
+                          <span className="text-slate-400 dark:text-slate-500 font-normal">এখনও কোনো ব্যাকআপ হয়নি</span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ৩. স্বয়ংক্রিয় ব্যাকআপের সময়কাল (দৈনিক / সাপ্তাহিক / মাসিক) */}
+                <div className="p-3.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/70 dark:border-slate-700/70 space-y-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-200/50 dark:border-emerald-900/50">
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <h5 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                        স্বয়ংক্রিয় ব্যাকআপের সময়কাল
+                      </h5>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {isDriveConnected
+                          ? autoBackupConfig.frequency === 'daily'
+                            ? 'প্রতিদিন আপনার হিসাব স্বয়ংক্রিয়ভাবে ব্যাকআপ হবে'
+                            : autoBackupConfig.frequency === 'weekly'
+                            ? 'সাপ্তাহিক আপনার হিসাব স্বয়ংক্রিয়ভাবে ব্যাকআপ হবে'
+                            : 'মাসিক আপনার হিসাব স্বয়ংক্রিয়ভাবে ব্যাকআপ হবে'
+                          : 'সিঙ্ক চালু থাকলে স্বয়ংক্রিয়ভাবে নিয়মিত ব্যাকআপ হবে'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 3 Frequency Selection Options */}
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-200/60 dark:bg-slate-900/60 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => handleFrequencyChange('daily')}
+                      className={`py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        autoBackupConfig.frequency === 'daily'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {autoBackupConfig.frequency === 'daily' && (
+                        <Check className="w-3 h-3 text-slate-900 dark:text-white shrink-0" />
+                      )}
+                      <span>দৈনিক</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleFrequencyChange('weekly')}
+                      className={`py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        autoBackupConfig.frequency === 'weekly'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {autoBackupConfig.frequency === 'weekly' && (
+                        <Check className="w-3 h-3 text-slate-900 dark:text-white shrink-0" />
+                      )}
+                      <span>সাপ্তাহিক</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleFrequencyChange('monthly')}
+                      className={`py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                        autoBackupConfig.frequency === 'monthly'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {autoBackupConfig.frequency === 'monthly' && (
+                        <Check className="w-3 h-3 text-slate-900 dark:text-white shrink-0" />
+                      )}
+                      <span>মাসিক</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* ৪. গুগল ড্রাইভ অ্যাকশন বাটনসমূহ (এখনই ব্যাকআপ নিন এবং রিস্টোর) */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleDriveBackupClick}
+                    disabled={isBackingUp || !isDriveConnected}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:hover:bg-white text-white dark:text-slate-900 text-xs font-bold flex items-center justify-center gap-2 shadow-xs cursor-pointer transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isBackingUp ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>আপলোড হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cloud className="w-4 h-4" />
+                        <span>এখনই ব্যাকআপ নিন</span>
+                      </>
                     )}
-                  </>
+                  </button>
+
+                  {driveMeta?.exists && (
+                    <button
+                      type="button"
+                      onClick={handleDriveRestoreClick}
+                      disabled={isRestoring || !isDriveConnected}
+                      className="py-2.5 px-3.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="গুগল ড্রাইভ থেকে হিসাব ফিরিয়ে আনুন"
+                    >
+                      {isRestoring ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5 text-slate-500" />
+                      )}
+                      <span>রিস্টোর</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Overwrite Confirmation Dialog */}
+                {showOverwriteConfirm && (
+                  <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 space-y-3 animate-in fade-in">
+                    <div className="flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <h4 className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                          পূর্ববর্তী ব্যাকআপ ফাইল প্রতিস্থাপন করবেন?
+                        </h4>
+                        <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-1 leading-relaxed">
+                          আপনার গুগল ড্রাইভে ইতোমধ্যেই একটি ব্যাকআপ ফাইল রয়েছে। আপনি কি বর্তমান ডিভাইসের সর্বশেষ ডাটা দিয়ে ড্রাইভে থাকা পূর্ববর্তী ব্যাকআপটি প্রতিস্থাপন করতে চান?
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowOverwriteConfirm(false)}
+                        className="flex-1 py-2 rounded-xl border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200 text-xs font-medium hover:bg-amber-100/60 cursor-pointer"
+                      >
+                        বাতিল
+                      </button>
+                      <button
+                        type="button"
+                        onClick={executeDriveBackup}
+                        className="flex-1 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs cursor-pointer"
+                      >
+                        হ্যাঁ, ব্যাকআপ আপডেট করুন
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -686,6 +734,12 @@ export const BackupSystemModal: React.FC<BackupSystemModalProps> = ({
             {showFaq && (
               <div className="p-3.5 bg-white dark:bg-slate-900/20 text-[11px] text-slate-600 dark:text-slate-400 space-y-3 divide-y divide-slate-100 dark:divide-slate-800">
                 <div className="space-y-1">
+                  <p className="font-bold text-slate-800 dark:text-slate-200">কোন অ্যাকাউন্টে ব্যাকআপ সংরক্ষিত হচ্ছে?</p>
+                  <p className="leading-relaxed">
+                    আপনি অ্যাপে যে অ্যাকাউন্ট দিয়ে লগইন করেছেন ({appUser?.email ? <span className="font-semibold text-slate-900 dark:text-slate-100">{appUser.email}</span> : 'আপনার লগইনকৃত অ্যাকাউন্ট'}), স্বয়ংক্রিয়ভাবে সেই অ্যাকাউন্টের ক্লাউড ও গুগল ড্রাইভে আপনার সমস্ত হিসাব ব্যাকআপ সংরক্ষিত হচ্ছে। পরবর্তীতে যেকোনো ডিভাইসে এই একই অ্যাকাউন্টে লগইন করলেই হিসাব রিস্টোর করে নিতে পারবেন।
+                  </p>
+                </div>
+                <div className="pt-2 space-y-1">
                   <p className="font-bold text-slate-800 dark:text-slate-200">কখন ব্যাকআপ নেওয়া উচিত?</p>
                   <p className="leading-relaxed">
                     গুরুত্বপূর্ণ কোনো হিসাব লেখার পর বা প্রতি সপ্তাহের শেষে একবার ড্রাইভে অথবা অফলাইন ফাইল ডাউনলোড করে রাখা ভালো।
@@ -694,7 +748,7 @@ export const BackupSystemModal: React.FC<BackupSystemModalProps> = ({
                 <div className="pt-2 space-y-1">
                   <p className="font-bold text-slate-800 dark:text-slate-200">আমার তথ্য কি নিরাপদ?</p>
                   <p className="leading-relaxed">
-                    হ্যাঁ, আপনার কোনো তথ্য আমাদের সার্ভারে সংরক্ষিত হয় না। এটি শুধুমাত্র আপনার নিজস্ব ডিভাইসে এবং আপনার গুগল ড্রাইভে সংরক্ষিত থাকে।
+                    হ্যাঁ, আপনার তথ্য সম্পূর্ণ এনক্রিপ্টেড ও সুরক্ষিত। এটি শুধুমাত্র আপনার নিজস্ব ডিভাইসে এবং আপনার নিজস্ব অ্যাকাউন্টের ব্যাকআপ হিসেবে সংরক্ষিত থাকে।
                   </p>
                 </div>
               </div>

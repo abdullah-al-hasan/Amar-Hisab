@@ -120,7 +120,7 @@ export const loginAppWithGoogle = async (isRegistering: boolean = false): Promis
       provider: 'google',
       options: {
         redirectTo: getAuthRedirectUrl(),
-        scopes: 'openid email profile https://www.googleapis.com/auth/userinfo.profile',
+        scopes: 'openid email profile https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/drive.appdata',
         queryParams: {
           access_type: 'offline',
           prompt: 'select_account',
@@ -294,54 +294,40 @@ export const logoutApp = async () => {
     // Ignore
   }
   saveStoredAppUser(null);
+  saveStoredDriveAccount(null);
 };
 
 /**
- * 5. Google Drive Connect Functions
+ * 5. Google Drive & Cloud Sync Connect Functions
  */
-export const connectGoogleDrive = async (): Promise<DriveAccount | null> => {
+export const connectGoogleDrive = async (targetEmail?: string): Promise<DriveAccount | null> => {
   try {
-    // 1. First check if the user is signed in with Google and Supabase already has a provider_token
-    const { data: { session } } = await supabase.auth.getSession();
-    const providerToken = (session as any)?.provider_token;
-    
-    if (providerToken) {
-      const email = session?.user?.email || 'unknown';
-      const driveAcc: DriveAccount = {
-        email,
-        accessToken: providerToken,
-        connectedAt: new Date().toISOString(),
-      };
-      saveStoredDriveAccount(driveAcc);
-      return driveAcc;
-    }
-
-    // 2. If no provider token yet, initiate OAuth with Google Drive scope
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: getAuthRedirectUrl(),
-        scopes: 'https://www.googleapis.com/auth/drive.appdata',
-        queryParams: {
-          access_type: 'offline',
-          prompt: 'consent',
-        },
-      },
-    });
-
-    if (error) {
-      const errMsg = error.message || '';
-      if (
-        errMsg.toLowerCase().includes('unsupported provider') ||
-        errMsg.toLowerCase().includes('provider is not enabled') ||
-        errMsg.toLowerCase().includes('validation_failed')
-      ) {
-        throw new Error('গুগল ড্রাইভ সংযোগ বর্তমানে সমর্থিত নয়। দয়া করে নিচের অফলাইন ব্যাকআপ ডাউনলোড অপশন ব্যবহার করুন।');
+    // 1. Check if Supabase session already has Google provider_token
+    let providerToken: string | undefined;
+    let userEmail = targetEmail;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      providerToken = (session as any)?.provider_token;
+      if (!userEmail && session?.user?.email) {
+        userEmail = session.user.email;
       }
-      throw new Error(error.message || 'গুগল ড্রাইভ সাইন-ইন শুরু করতে সমস্যা হয়েছে');
+    } catch {
+      // Ignore session check error
     }
 
-    return null;
+    const email = userEmail || targetEmail || 'unknown';
+    const driveAcc: DriveAccount = {
+      email,
+      accessToken: providerToken || 'cloud_sync_token',
+      connectedAt: new Date().toISOString(),
+    };
+    saveStoredDriveAccount(driveAcc);
+    try {
+      localStorage.setItem('hishab_sync_enabled', 'true');
+    } catch {
+      // Ignore
+    }
+    return driveAcc;
   } catch (err: any) {
     console.error('connectGoogleDrive error:', err);
     throw err;
@@ -350,6 +336,11 @@ export const connectGoogleDrive = async (): Promise<DriveAccount | null> => {
 
 export const disconnectGoogleDrive = async () => {
   saveStoredDriveAccount(null);
+  try {
+    localStorage.removeItem('hishab_sync_enabled');
+  } catch {
+    // Ignore
+  }
 };
 
 export const getDriveAccessToken = (): string | null => {

@@ -549,8 +549,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         </span>
                       )}
                     </h4>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate max-w-[240px]">
-                      {driveAccount ? `গুগল ড্রাইভ: ${driveAccount.email}` : 'অনলাইন ও অফলাইন ব্যাকআপ পরিচালনা করুন'}
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate max-w-[260px]">
+                      {appUser?.email
+                        ? `${appUser.email}${driveMeta?.exists && driveMeta.size ? ` • সাইজ: ${formatBytes(driveMeta.size)}` : ''}`
+                        : 'স্বয়ংক্রিয় গুগল ড্রাইভ ও অফলাইন ব্যাকআপ'}
                     </p>
                   </div>
                 </div>

@@ -27,6 +27,7 @@ import { SendFeedbackModal } from './components/SendFeedbackModal';
 import { BackupSystemModal } from './components/BackupSystemModal';
 import { AppLockModal } from './components/AppLockModal';
 import { AboutAppModal } from './components/AboutAppModal';
+import { DriveRestorePromptModal } from './components/DriveRestorePromptModal';
 import { CheckCircle2 } from 'lucide-react';
 import { getAutoBackupConfig, saveAutoBackupConfig, shouldPerformAutoBackup } from './utils/autoBackup';
 import { saveAppDataToSupabase, loadAppDataFromSupabase } from './services/supabaseData';
@@ -59,6 +60,9 @@ export default function App() {
   const [isBackupSystemOpen, setIsBackupSystemOpen] = useState(false);
   const [isAppLockOpen, setIsAppLockOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
+
+  // Google Drive Restore Prompt on Device Change / Reinstall Login
+  const [isRestorePromptOpen, setIsRestorePromptOpen] = useState(false);
 
   // Theme state: Strictly Pure White on all devices (No dark mode)
   useEffect(() => {
@@ -101,48 +105,62 @@ export default function App() {
     });
   }, []);
 
-  // Auto-sync with Supabase on login
+  // Google Drive & Cloud Restore Check on Device Change / Reinstall / Login
   useEffect(() => {
     const currentUid = googleAuth.appUser?.uid;
-    if (currentUid) {
-      loadAppDataFromSupabase(currentUid).then(res => {
-        if (res.data && res.data.transactions && res.data.accounts) {
-          setData(prev => {
-            if (prev.transactions.length <= res.data!.transactions.length) {
-              saveData(res.data!);
-              return res.data!;
-            }
-            return prev;
-          });
-        } else if (data.transactions.length > 0) {
-          saveAppDataToSupabase(currentUid, data);
-        }
-      }).catch(err => {
-        console.warn('Initial Supabase sync check:', err);
-      });
-    }
-  }, [googleAuth.appUser?.uid]);
+    if (!currentUid) return;
 
-  // Background Google Drive Auto-Backup when scheduled (daily / weekly / monthly)
+    const isRestored = localStorage.getItem('hishab_restored_user_' + currentUid);
+    const isDismissed = sessionStorage.getItem('hishab_dismissed_restore_' + currentUid);
+
+    // If already restored or dismissed on this device, skip
+    if (isRestored || isDismissed) return;
+
+    // Check cloud backup for this user
+    loadAppDataFromSupabase(currentUid, googleAuth.appUser?.email || undefined).then(res => {
+      if (res.data && res.data.transactions && res.data.transactions.length > 0) {
+        // If device has fewer transactions or fresh install
+        if (data.transactions.length === 0 || data.transactions.length < res.data.transactions.length) {
+          googleAuth.refreshDriveBackupMeta();
+          setIsRestorePromptOpen(true);
+        }
+      }
+    }).catch(err => {
+      console.warn('Initial cloud restore check:', err);
+    });
+  }, [googleAuth.appUser?.uid, data.transactions.length]);
+
+  // Background Google Drive & Cloud Auto-Backup when scheduled (daily / weekly / monthly)
   useEffect(() => {
-    // Only run auto-backup for logged in users
-    if (!googleAuth.isAppLoggedIn || !googleAuth.driveAccount?.accessToken || googleAuth.isBackingUp || googleAuth.isLoadingAuth) {
+    // Only run auto-backup for logged in users with sync connected
+    if (!googleAuth.isAppLoggedIn || !googleAuth.isDriveConnected) {
       return;
     }
-    const config = getAutoBackupConfig();
-    const isDue = shouldPerformAutoBackup(config, googleAuth.driveMeta?.modifiedTime);
-    if (isDue) {
-      googleAuth.performDriveBackup(data).then(meta => {
-        const updatedConfig = {
-          ...config,
-          lastAutoBackup: meta.modifiedTime || new Date().toISOString(),
-        };
-        saveAutoBackupConfig(updatedConfig);
-      }).catch(err => {
-        console.warn('Scheduled auto backup skipped:', err);
-      });
-    }
-  }, [googleAuth.isAppLoggedIn, googleAuth.driveAccount, googleAuth.driveMeta?.modifiedTime]);
+
+    const checkAndRunAutoBackup = () => {
+      if (googleAuth.isBackingUp || googleAuth.isLoadingAuth) return;
+      const config = getAutoBackupConfig();
+      const isDue = shouldPerformAutoBackup(config, googleAuth.driveMeta?.modifiedTime);
+      if (isDue) {
+        googleAuth.performDriveBackup(data).then(meta => {
+          const updatedConfig = {
+            ...config,
+            lastAutoBackup: meta.modifiedTime || new Date().toISOString(),
+          };
+          saveAutoBackupConfig(updatedConfig);
+        }).catch(err => {
+          console.warn('Scheduled auto backup skipped:', err);
+        });
+      }
+    };
+
+    // Run check immediately
+    checkAndRunAutoBackup();
+
+    // Check periodically every 5 minutes while app is running
+    const timer = setInterval(checkAndRunAutoBackup, 5 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [googleAuth.isAppLoggedIn, googleAuth.isDriveConnected, googleAuth.driveMeta?.modifiedTime, data]);
 
   // 1. Transaction Handlers
   const handleSaveTransaction = (txnData: Partial<Transaction>) => {
@@ -369,6 +387,39 @@ export default function App() {
   const handleRestoreData = (restored: AppData) => {
     updateData(() => restored);
     showToast('ব্যাকআপ সফলভাবে রিস্টোর হয়েছে');
+  };
+
+  const handleConfirmDriveRestore = async () => {
+    try {
+      const restored = await googleAuth.performDriveRestore();
+      if (restored && restored.transactions && restored.accounts) {
+        updateData(() => restored);
+        const uid = googleAuth.appUser?.uid;
+        if (uid) {
+          localStorage.setItem('hishab_restored_user_' + uid, 'true');
+        }
+        if (googleAuth.driveMeta?.fileId) {
+          localStorage.setItem('hishab_restored_file_' + googleAuth.driveMeta.fileId, 'true');
+        }
+        // Auto-enable sync upon restore
+        localStorage.setItem('hishab_sync_enabled', 'true');
+        showToast(`গুগল ব্যাকআপ থেকে ${toBanglaDigits(restored.transactions.length)}টি হিসাব সফলভাবে রিস্টোর হয়েছে!`);
+      }
+    } catch (err: any) {
+      console.error('Failed to restore from drive:', err);
+      throw err;
+    }
+  };
+
+  const handleCloseRestorePrompt = () => {
+    setIsRestorePromptOpen(false);
+    const uid = googleAuth.appUser?.uid;
+    if (uid) {
+      sessionStorage.setItem('hishab_dismissed_restore_' + uid, 'true');
+    }
+    if (googleAuth.driveMeta?.fileId) {
+      sessionStorage.setItem('hishab_dismissed_restore_' + googleAuth.driveMeta.fileId, 'true');
+    }
   };
 
   const handleResetAllData = () => {
@@ -757,6 +808,15 @@ export default function App() {
         }}
         onForgotPassword={googleAuth.resetPassword}
         isLoadingAuth={googleAuth.isLoadingAuth}
+      />
+
+      {/* Drive Restore Prompt on Device Change / Fresh Reinstall */}
+      <DriveRestorePromptModal
+        isOpen={isRestorePromptOpen}
+        onClose={handleCloseRestorePrompt}
+        driveMeta={googleAuth.driveMeta}
+        userEmail={googleAuth.appUser?.email}
+        onConfirmRestore={handleConfirmDriveRestore}
       />
 
       {/* Pin Lock Screen Overlay (WhatsApp style app lock) - Secure reset with account password */}

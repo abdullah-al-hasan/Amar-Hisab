@@ -43,12 +43,23 @@ export const shouldPerformAutoBackup = (
   lastBackupTime?: string
 ): boolean => {
   if (!config.enabled) return false;
-  const compareTime = config.lastAutoBackup || lastBackupTime;
-  if (!compareTime) return true; // No backup yet, trigger auto backup
 
-  const lastDate = new Date(compareTime).getTime();
+  const validTimestamps: number[] = [];
+  if (config.lastAutoBackup) {
+    const t = new Date(config.lastAutoBackup).getTime();
+    if (!isNaN(t) && t > 0) validTimestamps.push(t);
+  }
+  if (lastBackupTime) {
+    const t = new Date(lastBackupTime).getTime();
+    if (!isNaN(t) && t > 0) validTimestamps.push(t);
+  }
+
+  // If no backup exists yet at all, auto backup is due
+  if (validTimestamps.length === 0) return true;
+
+  const latestTime = Math.max(...validTimestamps);
   const now = Date.now();
-  const diffHours = (now - lastDate) / (1000 * 60 * 60);
+  const diffHours = (now - latestTime) / (1000 * 60 * 60);
 
   if (config.frequency === 'daily') {
     return diffHours >= 24;

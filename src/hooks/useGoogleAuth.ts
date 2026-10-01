@@ -19,6 +19,7 @@ import {
 import { supabase } from '../services/supabaseClient';
 import { formatSupabaseUser } from '../services/supabaseAuth';
 import { findDriveBackup, uploadBackupToDrive, restoreFromDrive, DriveBackupMeta } from '../services/googleDrive';
+import { saveAppDataToSupabase, loadAppDataFromSupabase, getCachedCloudBackupMeta } from '../services/supabaseData';
 import { AppData, AppUser, DriveAccount } from '../types';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
@@ -45,41 +46,72 @@ export function useGoogleAuth() {
   const [isRestoring, setIsRestoring] = useState(false);
   const [driveError, setDriveError] = useState<string | null>(null);
 
-  // Check Drive backup metadata if Drive is connected
+  // Check Drive & Cloud backup metadata
   const refreshDriveBackupMeta = useCallback(async (token?: string) => {
     const accessToken = token || driveAccount?.accessToken;
-    if (!accessToken) {
+    const currentUid = appUser?.uid;
+
+    setIsCheckingDrive(true);
+    try {
+      // 1. If Google OAuth access token is available, check Google Drive
+      if (accessToken && accessToken.startsWith('ya29.')) {
+        try {
+          const meta = await findDriveBackup(accessToken);
+          if (meta.exists) {
+            setDriveMeta(meta);
+            setDriveError(null);
+            localStorage.setItem('hishab_drive_meta', JSON.stringify(meta));
+            return meta;
+          }
+        } catch (gErr) {
+          console.warn('Google Drive check fallback to cloud:', gErr);
+        }
+      }
+
+      // 2. Check Supabase Cloud backup
+      if (currentUid) {
+        const cloudRes = await loadAppDataFromSupabase(currentUid, appUser?.email || undefined);
+        if (cloudRes.meta && cloudRes.meta.exists) {
+          setDriveMeta(cloudRes.meta);
+          setDriveError(null);
+          localStorage.setItem('hishab_drive_meta', JSON.stringify(cloudRes.meta));
+          return cloudRes.meta;
+        }
+      }
+
+      // 3. Fallback to cached metadata
+      const cached = currentUid ? getCachedCloudBackupMeta(currentUid) : null;
+      if (cached) {
+        setDriveMeta(cached);
+        return cached;
+      }
+
       setDriveMeta(null);
       return null;
-    }
-
-    try {
-      setIsCheckingDrive(true);
-      const meta = await findDriveBackup(accessToken);
-      setDriveMeta(meta);
-      setDriveError(null);
-      localStorage.setItem('hishab_drive_meta', JSON.stringify(meta));
-      return meta;
     } catch (err: any) {
-      console.warn('Failed to check drive backup:', err);
-      if (
-        err.message?.includes('insufficient') ||
-        err.message?.includes('Insufficient') ||
-        err.message?.includes('403') ||
-        err.message?.includes('invalid_grant')
-      ) {
-        setDriveError('ড্রাইভ একাউন্টের অনুমতির মেয়াদ শেষ হয়েছে। দয়া করে ড্রাইভ পুনরায় সংযুক্ত করুন।');
-      }
+      console.warn('Failed to check backup meta:', err);
       return null;
     } finally {
       setIsCheckingDrive(false);
     }
-  }, [driveAccount?.accessToken]);
+  }, [driveAccount?.accessToken, appUser?.uid, appUser?.email]);
 
   // Initial check and Supabase session listener
   useEffect(() => {
-    if (driveAccount?.accessToken) {
-      refreshDriveBackupMeta(driveAccount.accessToken);
+    // If sync was enabled in localStorage, ensure driveAccount is set
+    const isSyncOn = localStorage.getItem('hishab_sync_enabled') === 'true';
+    if (appUser && isSyncOn && !driveAccount) {
+      const dAcc: DriveAccount = {
+        email: appUser.email || 'user',
+        accessToken: 'cloud_sync_token',
+        connectedAt: new Date().toISOString(),
+      };
+      setDriveAccount(dAcc);
+      saveStoredDriveAccount(dAcc);
+    }
+
+    if (appUser) {
+      refreshDriveBackupMeta();
     }
 
     // Listen to Supabase auth events (e.g. after Google OAuth redirect)
@@ -89,11 +121,11 @@ export function useGoogleAuth() {
         setAppUser(u);
         saveStoredAppUser(u);
 
-        // If Google provider token is returned, connect Drive
+        // If Google provider token is returned, connect Drive with appUser's email
         const providerToken = (session as any)?.provider_token;
         if (providerToken) {
           const dAcc: DriveAccount = {
-            email: session.user.email || 'unknown',
+            email: u.email || session.user.email || 'unknown',
             accessToken: providerToken,
             connectedAt: new Date().toISOString(),
           };
@@ -104,6 +136,10 @@ export function useGoogleAuth() {
       } else if (event === 'SIGNED_OUT') {
         setAppUser(null);
         saveStoredAppUser(null);
+        setDriveAccount(null);
+        saveStoredDriveAccount(null);
+        setDriveMeta(null);
+        localStorage.removeItem('hishab_sync_enabled');
       }
     });
 
@@ -115,9 +151,9 @@ export function useGoogleAuth() {
         saveStoredAppUser(u);
 
         const providerToken = (session as any)?.provider_token;
-        if (providerToken && !driveAccount) {
+        if (providerToken) {
           const dAcc: DriveAccount = {
-            email: session.user.email || 'unknown',
+            email: u.email || session.user.email || 'unknown',
             accessToken: providerToken,
             connectedAt: new Date().toISOString(),
           };
@@ -150,6 +186,18 @@ export function useGoogleAuth() {
                 const u = formatSupabaseUser(sessionData.user);
                 setAppUser(u);
                 saveStoredAppUser(u);
+
+                const providerToken = (sessionData.session as any)?.provider_token;
+                if (providerToken) {
+                  const dAcc: DriveAccount = {
+                    email: sessionData.user.email || 'unknown',
+                    accessToken: providerToken,
+                    connectedAt: new Date().toISOString(),
+                  };
+                  setDriveAccount(dAcc);
+                  saveStoredDriveAccount(dAcc);
+                  refreshDriveBackupMeta(providerToken);
+                }
               }
             }
           } catch (e) {
@@ -225,21 +273,29 @@ export function useGoogleAuth() {
   const handleAppSignOut = async () => {
     await logoutApp();
     setAppUser(null);
+    setDriveAccount(null);
+    setDriveMeta(null);
   };
 
-  // 4. Drive Connect Handlers
-  const handleConnectDrive = async (): Promise<DriveAccount | null> => {
+  // 4. Drive & Cloud Connect Handlers
+  const handleConnectDrive = async (currentAppData?: AppData): Promise<DriveAccount | null> => {
     setIsLoadingAuth(true);
     setDriveError(null);
     try {
-      const acc = await connectGoogleDrive();
+      const email = appUser?.email || undefined;
+      const acc = await connectGoogleDrive(email);
       if (acc) {
+        if (email) acc.email = email;
         setDriveAccount(acc);
-        await refreshDriveBackupMeta(acc.accessToken);
+        if (currentAppData) {
+          await performDriveBackup(currentAppData);
+        } else {
+          await refreshDriveBackupMeta(acc.accessToken);
+        }
       }
       return acc;
     } catch (err: any) {
-      const msg = err?.message || 'গুগল ড্রাইভ সংযুক্ত করতে সমস্যা হয়েছে';
+      const msg = err?.message || 'সিঙ্ক চালু করতে সমস্যা হয়েছে';
       setDriveError(msg);
       return null;
     } finally {
@@ -250,52 +306,88 @@ export function useGoogleAuth() {
   const handleDisconnectDrive = async () => {
     await disconnectGoogleDrive();
     setDriveAccount(null);
-    setDriveMeta(null);
   };
 
-  // 5. Upload backup to Google Drive
+  // 5. Upload backup to Google Drive & Cloud
   const performDriveBackup = async (appData: AppData): Promise<DriveBackupMeta> => {
-    const accessToken = driveAccount?.accessToken;
-    if (!accessToken || !driveAccount) {
-      throw new Error('গুগল ড্রাইভে ব্যাকআপ নিতে প্রথমে ড্রাইভ সংযুক্ত করুন');
-    }
-
     setIsBackingUp(true);
+    setDriveError(null);
     try {
-      const meta = await uploadBackupToDrive(
-        accessToken,
-        appData,
-        driveAccount.email || undefined,
-        driveMeta?.fileId
-      );
-      setDriveMeta(meta);
-      localStorage.setItem('hishab_drive_meta', JSON.stringify(meta));
-      return meta;
+      const email = driveAccount?.email || appUser?.email || undefined;
+      const uid = appUser?.uid || 'user';
+
+      // 1. Always save to Cloud / Supabase
+      const cloudRes = await saveAppDataToSupabase(uid, appData, email);
+      let finalMeta: DriveBackupMeta = {
+        exists: true,
+        fileId: 'cloud_' + uid,
+        name: 'amar_hisab_backup.json',
+        size: cloudRes.size || new Blob([JSON.stringify(appData)]).size,
+        modifiedTime: cloudRes.updatedAt || new Date().toISOString(),
+        userEmail: email,
+        transactionCount: appData.transactions?.length || 0,
+      };
+
+      // 2. If real Google Drive access token exists, also upload to Google Drive
+      const accessToken = driveAccount?.accessToken;
+      if (accessToken && accessToken.startsWith('ya29.')) {
+        try {
+          const driveMetaRes = await uploadBackupToDrive(
+            accessToken,
+            appData,
+            email,
+            driveMeta?.fileId
+          );
+          if (driveMetaRes) {
+            finalMeta = driveMetaRes;
+          }
+        } catch (driveErr) {
+          console.warn('Google Drive backup upload warning:', driveErr);
+        }
+      }
+
+      setDriveMeta(finalMeta);
+      localStorage.setItem('hishab_drive_meta', JSON.stringify(finalMeta));
+      return finalMeta;
     } catch (err: any) {
+      const msg = err?.message || 'ব্যাকআপ নিতে সমস্যা হয়েছে';
+      setDriveError(msg);
       throw err;
     } finally {
       setIsBackingUp(false);
     }
   };
 
-  // 6. Restore backup from Google Drive
+  // 6. Restore backup from Google Drive & Cloud
   const performDriveRestore = async (): Promise<AppData> => {
-    const accessToken = driveAccount?.accessToken;
-    if (!accessToken || !driveAccount) {
-      throw new Error('গুগল ড্রাইভ থেকে রিস্টোর করতে প্রথমে ড্রাইভ সংযুক্ত করুন');
-    }
-
-    const meta = await refreshDriveBackupMeta(accessToken);
-    const fileId = meta?.fileId || driveMeta?.fileId;
-
-    if (!fileId) {
-      throw new Error('গুগল ড্রাইভে কোনো ব্যাকআপ ফাইল পাওয়া যায়নি');
-    }
-
     setIsRestoring(true);
+    setDriveError(null);
     try {
-      const result = await restoreFromDrive(accessToken, fileId);
-      return result.data;
+      const accessToken = driveAccount?.accessToken;
+      // 1. If real Google Drive token exists, try Google Drive first
+      if (accessToken && accessToken.startsWith('ya29.')) {
+        try {
+          const meta = await refreshDriveBackupMeta(accessToken);
+          const fileId = meta?.fileId || driveMeta?.fileId;
+          if (fileId && !fileId.startsWith('cloud_')) {
+            const result = await restoreFromDrive(accessToken, fileId);
+            return result.data;
+          }
+        } catch (gErr) {
+          console.warn('Google Drive restore fallback to cloud:', gErr);
+        }
+      }
+
+      // 2. Restore from Supabase Cloud
+      const uid = appUser?.uid;
+      if (uid) {
+        const cloudRes = await loadAppDataFromSupabase(uid, appUser?.email || undefined);
+        if (cloudRes.data && cloudRes.data.transactions) {
+          return cloudRes.data;
+        }
+      }
+
+      throw new Error('গুগল ড্রাইভ বা ক্লাউডে কোনো ব্যাকআপ ফাইল পাওয়া যায়নি');
     } catch (err: any) {
       throw err;
     } finally {

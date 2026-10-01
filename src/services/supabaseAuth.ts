@@ -113,6 +113,11 @@ export async function loginWithSupabaseGoogle(): Promise<void> {
     provider: 'google',
     options: {
       redirectTo: getAuthRedirectUrl(),
+      scopes: 'openid email profile https://www.googleapis.com/auth/userinfo.profile',
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'select_account',
+      },
     },
   });
 

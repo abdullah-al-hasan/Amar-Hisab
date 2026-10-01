@@ -274,6 +274,8 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 <img
                   src={photoURL}
                   alt={name}
+                  referrerPolicy="no-referrer"
+                  crossOrigin="anonymous"
                   onError={() => setImgError(true)}
                   className="w-20 h-20 rounded-full object-cover border-4 border-emerald-500 shadow-md"
                 />

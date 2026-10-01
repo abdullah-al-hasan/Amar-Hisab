@@ -120,6 +120,11 @@ export const loginAppWithGoogle = async (isRegistering: boolean = false): Promis
       provider: 'google',
       options: {
         redirectTo: getAuthRedirectUrl(),
+        scopes: 'openid email profile https://www.googleapis.com/auth/userinfo.profile',
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
       },
     });
 

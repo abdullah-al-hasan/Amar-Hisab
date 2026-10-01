@@ -21,11 +21,13 @@ export const saveStoredAppUser = (user: AppUser | null) => {
 };
 
 export function formatSupabaseUser(user: any): AppUser {
+  const metadata = user.user_metadata || {};
+  const photo = metadata.avatar_url || metadata.picture || metadata.photo_url || null;
   return {
     uid: user.id,
     email: user.email || null,
-    displayName: user.user_metadata?.display_name || user.user_metadata?.full_name || (user.email ? user.email.split('@')[0] : 'ইউজার'),
-    photoURL: user.user_metadata?.avatar_url || null,
+    displayName: metadata.display_name || metadata.full_name || metadata.name || (user.email ? user.email.split('@')[0] : 'ইউজার'),
+    photoURL: photo,
   };
 }
 

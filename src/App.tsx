@@ -681,7 +681,9 @@ export default function App() {
         googleUser={googleAuth.appUser}
         isLoggedIn={googleAuth.isAppLoggedIn}
         isDriveConnected={googleAuth.isDriveConnected}
+        hasPassword={googleAuth.hasPassword}
         onLogout={handleLogoutWithAutoBackup}
+        onSetPassword={googleAuth.setPassword}
         onChangePassword={googleAuth.changePassword}
         onForgotPassword={googleAuth.resetPassword}
       />

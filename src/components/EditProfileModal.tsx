@@ -17,7 +17,9 @@ interface EditProfileModalProps {
   } | null;
   isLoggedIn?: boolean;
   isDriveConnected?: boolean;
+  hasPassword?: boolean;
   onLogout?: () => Promise<void> | void;
+  onSetPassword?: (newPass: string) => Promise<void>;
   onChangePassword?: (oldPass: string, newPass: string) => Promise<void>;
   onForgotPassword?: (email: string, newPass: string) => Promise<void>;
 }
@@ -42,7 +44,9 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   googleUser,
   isLoggedIn,
   isDriveConnected = false,
+  hasPassword = false,
   onLogout,
+  onSetPassword,
   onChangePassword,
   onForgotPassword,
 }) => {
@@ -51,7 +55,26 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const [email, setEmail] = useState(currentProfile.email || (googleUser?.email || ''));
   const [avatarIcon, setAvatarIcon] = useState(currentProfile.avatarIcon || '👨‍🎓');
   const [photoURL, setPhotoURL] = useState<string | undefined>(currentProfile.photoURL);
+  const [imgError, setImgError] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Sync state when modal opens or currentProfile / googleUser changes
+  React.useEffect(() => {
+    if (isOpen) {
+      setName(currentProfile.name || googleUser?.displayName || '');
+      setPhone(currentProfile.phone || '');
+      setEmail(currentProfile.email || googleUser?.email || '');
+      setAvatarIcon(currentProfile.avatarIcon || '👨‍🎓');
+      setPhotoURL(currentProfile.photoURL || googleUser?.photoURL || undefined);
+      setImgError(false);
+      setShowPasswordSection(false);
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setPassError('');
+      setPassSuccess('');
+    }
+  }, [isOpen, currentProfile, googleUser]);
 
   // Password Change & Forgot Password states
   const [showPasswordSection, setShowPasswordSection] = useState(false);
@@ -104,6 +127,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       const reader = new FileReader();
       reader.onload = (event) => {
         setPhotoURL(event.target?.result as string);
+        setImgError(false);
       };
       reader.readAsDataURL(file);
     }
@@ -112,6 +136,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   const handleUseGooglePhoto = () => {
     if (googleUser?.photoURL) {
       setPhotoURL(googleUser.photoURL);
+      setImgError(false);
     }
     if (googleUser?.displayName && !name) {
       setName(googleUser.displayName);
@@ -134,16 +159,20 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
     onClose();
   };
 
-  // Handle Password Change
-  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+  // Handle Password Save (Set initial password or Change existing password)
+  const handleSavePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPassError('');
     setPassSuccess('');
 
-    if (!oldPassword) {
-      setPassError('বর্তমান পাসওয়ার্ড লিখুন');
-      return;
+    // If user already has a password, verify old password
+    if (hasPassword) {
+      if (!oldPassword) {
+        setPassError('বর্তমান পাসওয়ার্ড লিখুন');
+        return;
+      }
     }
+
     if (newPassword.length < 6) {
       setPassError('নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে');
       return;
@@ -153,25 +182,31 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
       return;
     }
 
-    if (onChangePassword) {
-      setIsChangingPass(true);
-      try {
+    setIsChangingPass(true);
+    try {
+      if (hasPassword && onChangePassword) {
         await onChangePassword(oldPassword, newPassword);
         setPassSuccess('পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে!');
-        setOldPassword('');
-        setNewPassword('');
-        setConfirmNewPassword('');
-        setTimeout(() => {
-          setPassSuccess('');
-          setShowPasswordSection(false);
-        }, 3000);
-      } catch (err: any) {
-        setPassError(err.message || 'পাসওয়ার্ড পরিবর্তন করতে সমস্যা হয়েছে');
-      } finally {
-        setIsChangingPass(false);
+      } else if (onSetPassword) {
+        await onSetPassword(newPassword);
+        setPassSuccess('পাসওয়ার্ড সফলভাবে সেট করা হয়েছে!');
       }
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setTimeout(() => {
+        setPassSuccess('');
+        setShowPasswordSection(false);
+      }, 2500);
+    } catch (err: any) {
+      setPassError(err.message || 'পাসওয়ার্ড সংরক্ষণ করতে সমস্যা হয়েছে');
+    } finally {
+      setIsChangingPass(false);
     }
   };
+
+  // Handle Password Change (backward compatibility alias)
+  const handleChangePasswordSubmit = handleSavePasswordSubmit;
 
   // Handle Forgot Password
   const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
@@ -235,15 +270,20 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
           {/* Avatar / Photo Selector */}
           <div className="flex flex-col items-center justify-center py-1 space-y-3">
             <div className="relative group">
-              {photoURL ? (
+              {photoURL && !imgError ? (
                 <img
                   src={photoURL}
                   alt={name}
+                  onError={() => setImgError(true)}
                   className="w-20 h-20 rounded-full object-cover border-4 border-emerald-500 shadow-md"
                 />
-              ) : (
+              ) : avatarIcon ? (
                 <div className="w-20 h-20 rounded-full bg-slate-100 text-slate-800 border-4 border-slate-200 flex items-center justify-center text-3xl shadow-md">
                   {avatarIcon}
+                </div>
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-emerald-600 text-white border-4 border-emerald-500 flex items-center justify-center text-2xl font-bold shadow-md">
+                  {name ? name.slice(0, 1).toUpperCase() : 'আ'}
                 </div>
               )}
 
@@ -388,12 +428,12 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
             />
           </div>
 
-          {/* Password Management Option (Requirement 3: শুধু "পাসওয়ার্ড পরিবর্তন" এবং "পাসওয়ার্ড ভুলে গেছেন") */}
+          {/* Password Management Option: If hasPassword is false -> পাসওয়ার্ড সেট করুন; if true -> পাসওয়ার্ড পরিবর্তন */}
           <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/80 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
                 <KeyRound className="w-4 h-4 text-emerald-600" />
-                <span>পাসওয়ার্ড পরিবর্তন</span>
+                <span>{hasPassword ? 'পাসওয়ার্ড পরিবর্তন' : 'পাসওয়ার্ড সেট করুন'}</span>
               </div>
               <button
                 type="button"
@@ -404,37 +444,40 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 }}
                 className="text-xs font-semibold text-emerald-600 hover:underline cursor-pointer"
               >
-                {showPasswordSection ? 'বন্ধ করুন' : 'পরিবর্তন করুন'}
+                {showPasswordSection ? 'বন্ধ করুন' : (hasPassword ? 'পরিবর্তন করুন' : 'সেট করুন')}
               </button>
             </div>
 
             {showPasswordSection && (
               <div className="pt-2 border-t border-slate-200/60 space-y-3 animate-in fade-in">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-600">
-                    বর্তমান পাসওয়ার্ড
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showOldPass ? 'text' : 'password'}
-                      value={oldPassword}
-                      onChange={e => setOldPassword(e.target.value)}
-                      placeholder="বর্তমান পাসওয়ার্ড লিখুন"
-                      className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200 bg-white text-xs font-semibold outline-none focus:border-emerald-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowOldPass(!showOldPass)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                    >
-                      {showOldPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                    </button>
+                {/* Only ask for current password if user already set one */}
+                {hasPassword && (
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-slate-600">
+                      বর্তমান পাসওয়ার্ড
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showOldPass ? 'text' : 'password'}
+                        value={oldPassword}
+                        onChange={e => setOldPassword(e.target.value)}
+                        placeholder="বর্তমান পাসওয়ার্ড লিখুন"
+                        className="w-full px-3 py-2 pr-9 rounded-xl border border-slate-200 bg-white text-xs font-semibold outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOldPass(!showOldPass)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                      >
+                        {showOldPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold text-slate-600">
-                    নতুন পাসওয়ার্ড
+                    {hasPassword ? 'নতুন পাসওয়ার্ড' : 'পাসওয়ার্ড দিন'}
                   </label>
                   <div className="relative">
                     <input
@@ -456,13 +499,13 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
                 <div className="space-y-1">
                   <label className="text-[11px] font-semibold text-slate-600">
-                    নতুন পাসওয়ার্ড নিশ্চিত করুন
+                    {hasPassword ? 'নতুন পাসওয়ার্ড নিশ্চিত করুন' : 'পাসওয়ার্ডটি পুনরায় নিশ্চিত করুন'}
                   </label>
                   <input
                     type={showNewPass ? 'text' : 'password'}
                     value={confirmNewPassword}
                     onChange={e => setConfirmNewPassword(e.target.value)}
-                    placeholder="পুনরায় নতুন পাসওয়ার্ড লিখুন"
+                    placeholder="পুনরায় পাসওয়ার্ড লিখুন"
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -482,38 +525,40 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
                 )}
 
                 <div className="flex items-center justify-between pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowForgotModal(true);
-                      setResetError('');
-                      setResetSuccess('');
-                    }}
-                    className="text-xs text-rose-600 hover:underline font-semibold cursor-pointer"
-                  >
-                    পাসওয়ার্ড ভুলে গেছেন?
-                  </button>
+                  {hasPassword ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForgotModal(true);
+                        setResetError('');
+                        setResetSuccess('');
+                      }}
+                      className="text-xs text-rose-600 hover:underline font-semibold cursor-pointer"
+                    >
+                      পাসওয়ার্ড ভুলে গেছেন?
+                    </button>
+                  ) : <div />}
 
                   <button
                     type="button"
                     disabled={isChangingPass}
-                    onClick={handleChangePasswordSubmit}
+                    onClick={handleSavePasswordSubmit}
                     className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                   >
                     {isChangingPass ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>আপডেট হচ্ছে...</span>
+                        <span>সংরক্ষণ হচ্ছে...</span>
                       </>
                     ) : (
-                      <span>পাসওয়ার্ড আপডেট করুন</span>
+                      <span>{hasPassword ? 'পাসওয়ার্ড আপডেট করুন' : 'পাসওয়ার্ড সেট করুন'}</span>
                     )}
                   </button>
                 </div>
               </div>
             )}
 
-            {!showPasswordSection && (
+            {!showPasswordSection && hasPassword && (
               <div className="flex justify-end">
                 <button
                   type="button"

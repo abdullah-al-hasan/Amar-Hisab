@@ -12,7 +12,9 @@ import {
   saveStoredDriveAccount,
   verifyUserPassword,
   changeAppUserPassword,
-  resetUserPassword
+  resetUserPassword,
+  hasUserSetPassword,
+  setInitialPassword
 } from '../services/googleAuth';
 import { supabase } from '../services/supabaseClient';
 import { formatSupabaseUser } from '../services/supabaseAuth';
@@ -336,6 +338,12 @@ export function useGoogleAuth() {
     performDriveRestore,
 
     // Password & Recovery Methods
+    hasPassword: Boolean(hasUserSetPassword(appUser?.email)),
+    setPassword: (newPass: string) => {
+      const email = appUser?.email;
+      if (!email) throw new Error('লগইন করা ব্যবহারকারী পাওয়া যায়নি');
+      return setInitialPassword(email, newPass);
+    },
     verifyPassword: (password: string) => {
       const email = appUser?.email;
       if (!email) return Promise.resolve(false);

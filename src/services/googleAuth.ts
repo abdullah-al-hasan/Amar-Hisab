@@ -381,6 +381,47 @@ export const verifyUserPassword = async (email: string, pass: string): Promise<b
   return false;
 };
 
+export const hasUserSetPassword = (email?: string | null): boolean => {
+  if (!email) return false;
+  const normalizedEmail = email.trim().toLowerCase();
+  const accounts = getStoredLocalAccounts();
+  const localAcc = accounts.find(a => a.email.toLowerCase() === normalizedEmail);
+  return Boolean(localAcc && localAcc.password && localAcc.password.length >= 6);
+};
+
+export const setInitialPassword = async (
+  email: string,
+  newPass: string
+): Promise<void> => {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (newPass.length < 6) {
+    throw new Error('পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে');
+  }
+
+  // Save/Update in local accounts
+  const accounts = getStoredLocalAccounts();
+  const idx = accounts.findIndex(a => a.email.toLowerCase() === normalizedEmail);
+  if (idx >= 0) {
+    accounts[idx].password = newPass;
+    saveStoredLocalAccounts(accounts);
+  } else {
+    accounts.push({
+      uid: 'usr_' + Date.now().toString(36),
+      name: 'ইউজার',
+      email: normalizedEmail,
+      password: newPass,
+    });
+    saveStoredLocalAccounts(accounts);
+  }
+
+  // Update in Supabase
+  try {
+    await supabase.auth.updateUser({ password: newPass });
+  } catch (err) {
+    console.warn('Supabase set initial password notice:', err);
+  }
+};
+
 export const changeAppUserPassword = async (
   email: string,
   oldPass: string,

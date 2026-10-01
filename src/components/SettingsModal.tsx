@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   X, Wallet, Plus, Edit2, Trash2, Tag, 
   Smartphone, Building2, Banknote,
@@ -146,6 +146,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     disableLock,
     lockNow,
   } = securityAndProfile;
+
+  const [imgError, setImgError] = useState(false);
+
+  // Reset imgError when appUser or profile photo changes
+  useEffect(() => {
+    setImgError(false);
+  }, [appUser?.photoURL, profile?.photoURL]);
 
   if (!isOpen) return null;
 
@@ -388,10 +395,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {appUser && (
                 <div className="p-3.5 rounded-2xl bg-gradient-to-r from-slate-50 to-slate-100/80 dark:from-slate-900/80 dark:to-slate-800/60 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    {appUser?.photoURL || profile?.photoURL ? (
+                    {(appUser?.photoURL || profile?.photoURL) && !imgError ? (
                       <img
                         src={appUser?.photoURL || profile?.photoURL}
                         alt={displayName}
+                        onError={() => setImgError(true)}
                         className="w-10 h-10 rounded-full border-2 border-emerald-500 object-cover shrink-0"
                       />
                     ) : profile?.avatarIcon ? (
@@ -399,8 +407,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         {displayAvatar}
                       </div>
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                        {appUser?.displayName ? appUser.displayName.slice(0, 1).toUpperCase() : 'আ'}
+                      <div className="w-10 h-10 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs border-2 border-emerald-500">
+                        {appUser?.displayName ? appUser.displayName.slice(0, 1).toUpperCase() : (displayName ? displayName.slice(0, 1).toUpperCase() : 'আ')}
                       </div>
                     )}
 

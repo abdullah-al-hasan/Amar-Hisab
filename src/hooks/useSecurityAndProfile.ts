@@ -31,18 +31,26 @@ export function useSecurityAndProfile(googleUser?: { displayName?: string | null
     return DEFAULT_PROFILE;
   });
 
-  // Sync Google info into profile if profile is untouched default
+  // Sync Google info into profile if profile is untouched default or user logs in with Google photo
   useEffect(() => {
-    if (googleUser && (!profile.name || profile.name === 'ব্যক্তিগত অ্যাকাউন্ট')) {
+    if (googleUser) {
       setProfile(prev => {
-        const updated = {
-          ...prev,
-          name: googleUser.displayName || prev.name,
-          email: googleUser.email || prev.email,
-          photoURL: googleUser.photoURL || prev.photoURL,
-        };
-        localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
-        return updated;
+        const isDefaultName = !prev.name || prev.name === 'ব্যক্তিগত অ্যাকাউন্ট';
+        const newName = isDefaultName ? (googleUser.displayName || prev.name) : prev.name;
+        const newEmail = prev.email || googleUser.email || '';
+        const newPhoto = prev.photoURL || googleUser.photoURL || undefined;
+
+        if (newName !== prev.name || newEmail !== prev.email || newPhoto !== prev.photoURL) {
+          const updated = {
+            ...prev,
+            name: newName,
+            email: newEmail,
+            photoURL: newPhoto,
+          };
+          localStorage.setItem(PROFILE_KEY, JSON.stringify(updated));
+          return updated;
+        }
+        return prev;
       });
     }
   }, [googleUser]);
